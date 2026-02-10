@@ -79,7 +79,6 @@ class EmailSender:
         ideal_sqft = preferences.get("ideal_sqft")
         ideal_beds = preferences.get("ideal_beds")
         hoa_pref = preferences.get("hoa_preference")
-        neighborhood_weights = preferences.get("neighborhood_weights", {})
 
         # Check how much we've learned
         has_learned = bool(preferred_neighborhoods or ideal_price or ideal_sqft or hoa_pref is not None)
@@ -87,64 +86,64 @@ class EmailSender:
         if not has_learned and favorites_count == 0:
             # No data yet - explain we're just starting
             return (
-                "Me still getting to know you, Gru! Right now me showing houses sorted by price "
-                "(biggest banana first). Save some favorites and me learn what you like!"
+                "I'm still learning your preferences. Currently showing listings sorted by price (highest first). "
+                "Save some favorites and I'll start identifying patterns in what you like."
             )
 
         if not has_learned and favorites_count > 0:
             # Have favorites but haven't processed them yet
             return (
-                "Me see you have favorites, Gru! Me studying them to learn your taste. "
-                "For now, me show houses sorted by price. Soon me get smarter!"
+                "I see you have some favorites saved. I'm analyzing them to understand your preferences. "
+                "For now, listings are sorted by price—I'll get smarter with each update."
             )
 
         # We have learned preferences - explain our reasoning
         if preferred_neighborhoods:
             top_neighborhoods = preferred_neighborhoods[:3]
             if len(top_neighborhoods) == 1:
-                reasons.append(f"Me notice you really like <strong>{top_neighborhoods[0]}</strong>")
+                reasons.append(f"you've shown interest in <strong>{top_neighborhoods[0]}</strong>")
             else:
                 neighborhoods_str = ", ".join(top_neighborhoods[:-1]) + f" and {top_neighborhoods[-1]}"
-                reasons.append(f"Me notice you drawn to <strong>{neighborhoods_str}</strong>")
+                reasons.append(f"you're drawn to <strong>{neighborhoods_str}</strong>")
 
         if ideal_price:
-            reasons.append(f"your sweet spot seem to be around <strong>${ideal_price:,.0f}</strong>")
+            reasons.append(f"your target range centers around <strong>${ideal_price:,.0f}</strong>")
 
         if ideal_beds:
             beds_rounded = round(ideal_beds)
-            reasons.append(f"you prefer <strong>{beds_rounded} bedroom</strong> homes")
+            reasons.append(f"you prefer <strong>{beds_rounded}-bedroom</strong> homes")
 
         if ideal_sqft:
-            reasons.append(f"you like around <strong>{ideal_sqft:,.0f} sqft</strong>")
+            reasons.append(f"you gravitate toward <strong>{ideal_sqft:,.0f} sqft</strong>")
 
         if hoa_pref is not None:
             if hoa_pref:
-                reasons.append("you don't mind HOA")
+                reasons.append("you're comfortable with HOA communities")
             else:
-                reasons.append("you prefer <strong>no HOA</strong>")
+                reasons.append("you prefer properties <strong>without HOA</strong>")
 
         if reasons:
             # Build the explanation
-            reasoning = "Me been studying your favorites, Gru! " + reasons[0].capitalize()
+            reasoning = "Based on your favorites, I've noticed " + reasons[0]
             if len(reasons) > 1:
                 reasoning += ", " + ", ".join(reasons[1:-1])
                 if len(reasons) > 2:
                     reasoning += ","
                 reasoning += " and " + reasons[-1]
-            reasoning += ". Me boost houses that match these patterns!"
+            reasoning += ". I'm prioritizing listings that match these patterns."
             return reasoning
 
         return (
-            "Me learning your preferences, Gru! Keep saving favorites and "
-            "me get better at finding perfect house for you!"
+            "I'm building a profile of your preferences. Keep saving favorites "
+            "and I'll refine my recommendations over time."
         )
 
     def _get_bob_greeting(self, new_count: int, favorites_count: int) -> str:
-        """Get Bob the Minion's personalized greeting."""
+        """Get Bob's personalized greeting."""
         greetings = [
-            "Bello, Gru! Bob here, your dedicated Austin real estate minion!",
-            "Poopaye, Gru! It's Bob, back with your Austin property update!",
-            "Bank yu, Gru! Bob reporting in with the latest from the Austin market!",
+            "Hey there! Bob here with your Austin property update.",
+            "Good to see you! Here's what I found in the Austin market.",
+            "Hello! Bob checking in with your latest property report.",
         ]
         greeting = greetings[datetime.now().day % len(greetings)]
 
@@ -152,36 +151,36 @@ class EmailSender:
             message = f"""
             {greeting}
 
-            Me been keeping eye on market for you, Gru! Me found <strong>{new_count} new properties</strong>
-            that match your criteria. Me also kept your <strong>{favorites_count} saved favorites</strong>
-            updated with latest info.
+            I've been monitoring the market and found <strong>{new_count} new properties</strong>
+            that match your criteria. I've also kept your <strong>{favorites_count} saved favorites</strong>
+            updated with the latest information.
 
-            Take look below, Gru! Click star to save - BANANA! I mean... houses!
+            Take a look below—click the star on any listing to save it for tracking.
             """
         elif new_count > 0:
             message = f"""
             {greeting}
 
-            Great news, Gru! Me found <strong>{new_count} new properties</strong> that match what you looking for!
+            Good news! I found <strong>{new_count} new properties</strong> that match what you're looking for.
 
-            Browse through listings below. If something catch your eye, click star to add to
-            favorites - me keep tracking for you, boss!
+            Browse through the listings below. If something catches your eye, click the star to add it to
+            your favorites and I'll keep tracking it for you.
             """
         elif favorites_count > 0:
             message = f"""
             {greeting}
 
-            No new listings matched your criteria today, Gru. But me keeping eye on your
-            <strong>{favorites_count} saved favorites</strong>. Market moves fast in Austin,
-            so me let you know soon as something new pop up!
+            No new listings matched your criteria today, but I'm keeping an eye on your
+            <strong>{favorites_count} saved favorites</strong>. The Austin market moves quickly,
+            so I'll let you know as soon as something new comes up.
             """
         else:
             message = f"""
             {greeting}
 
-            It quiet day on Austin market, Gru - no new listings matched your criteria.
-            Don't worry though, me constantly scanning for properties. Me reach out soon
-            as me find something promising! BANANA!
+            It's a quiet day on the Austin market—no new listings matched your criteria.
+            I'm continuously scanning for properties and will reach out as soon as
+            I find something promising.
             """
 
         return message.strip()
@@ -396,13 +395,12 @@ class EmailSender:
                             border-right: 1px solid {COLORS['border']};">
                     <div style="display: flex; align-items: flex-start;">
                         <div style="width: 48px; height: 48px; background-color: #FCD34D; border-radius: 50%;
-                                    display: flex; align-items: center; justify-content: center; margin-right: 16px; flex-shrink: 0;
-                                    border: 3px solid #374151; position: relative;">
-                            <span style="font-size: 24px;">🍌</span>
+                                    display: flex; align-items: center; justify-content: center; margin-right: 16px; flex-shrink: 0;">
+                            <span style="font-size: 20px;">🏠</span>
                         </div>
                         <div>
-                            <div style="font-weight: 600; color: {COLORS['primary']}; margin-bottom: 4px;">Bob the Minion</div>
-                            <div style="font-size: 12px; color: {COLORS['muted']}; margin-bottom: 12px;">Your Real Estate Minion</div>
+                            <div style="font-weight: 600; color: {COLORS['primary']}; margin-bottom: 4px;">Bob</div>
+                            <div style="font-size: 12px; color: {COLORS['muted']}; margin-bottom: 12px;">Your Real Estate Assistant</div>
                             <div style="color: {COLORS['text']}; line-height: 1.6; font-size: 14px;">
                                 {bob_greeting}
                             </div>
@@ -433,11 +431,11 @@ class EmailSender:
                 <div style="background-color: {COLORS['primary']}; padding: 24px 32px; border-radius: 0 0 12px 12px;
                             text-align: center;">
                     <div style="color: white; font-size: 14px; margin-bottom: 12px;">
-                        Want see different properties, Gru? Tell Bob what you looking for!
+                        Want to adjust your search criteria? Let me know what you're looking for.
                     </div>
                     <a href="{feedback_url}" style="display: inline-block; background-color: #FCD34D;
                        color: #1F2937; padding: 10px 24px; text-decoration: none; border-radius: 6px;
-                       font-size: 14px; font-weight: 600;">🍌 Give Feedback</a>
+                       font-size: 14px; font-weight: 600;">💬 Give Feedback</a>
                 </div>
 
                 <!-- Footer -->
@@ -463,7 +461,7 @@ class EmailSender:
         lines.append("AUSTIN PROPERTY REPORT")
         lines.append("=" * 60)
         lines.append("")
-        lines.append("Bello, Gru! Bob the Minion here, your real estate minion!")
+        lines.append("Hey there! Bob here, your real estate assistant.")
         lines.append("")
 
         if favorites:
