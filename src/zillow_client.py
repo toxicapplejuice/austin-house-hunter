@@ -51,7 +51,20 @@ class ZillowClient:
             timeout=30,
         )
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+
+        # Debug: print response structure
+        print(f"API Response keys: {list(data.keys()) if isinstance(data, dict) else 'list'}")
+        if isinstance(data, dict):
+            for key, value in data.items():
+                if isinstance(value, list):
+                    print(f"  {key}: list with {len(value)} items")
+                elif isinstance(value, dict):
+                    print(f"  {key}: dict with keys {list(value.keys())[:5]}")
+                else:
+                    print(f"  {key}: {type(value).__name__} = {str(value)[:100]}")
+
+        return data
 
     def build_search_prompt(self, config: dict[str, Any]) -> str:
         """
