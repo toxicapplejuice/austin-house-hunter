@@ -7,9 +7,9 @@ from pathlib import Path
 
 import yaml
 
-from distance import distance_to_monarch
 from email_sender import EmailSender
 from filters import ListingFilter
+from location import distance_to_sapphire, get_neighborhood
 from zillow_client import ZillowClient, parse_listing
 
 # Configuration
@@ -136,17 +136,51 @@ def calculate_relevance_score(listing: dict, config: dict) -> float:
 
 def enrich_listing(listing: dict) -> dict:
     """Add calculated fields to a listing."""
-    # Calculate distance to Monarch Apartments
     lat = listing.get("latitude")
     lon = listing.get("longitude")
+
+    # Calculate distance to Sapphire
     if lat and lon:
-        listing["distance"] = distance_to_monarch(lat, lon)
+        listing["distance"] = distance_to_sapphire(lat, lon)
+        # Get neighborhood and direction
+        neighborhood, direction = get_neighborhood(lat, lon)
+        listing["neighborhood"] = neighborhood
+        listing["direction"] = direction
     else:
         listing["distance"] = None
+        listing["neighborhood"] = None
+        listing["direction"] = None
 
-    # Use address as name if no description
-    if not listing.get("name"):
+    # Use description or address as name
+    if listing.get("description"):
+        # Truncate long descriptions
+        desc = listing["description"]
+        if len(desc) > 50:
+            listing["name"] = desc[:47] + "..."
+        else:
+            listing["name"] = desc
+    elif not listing.get("name"):
         listing["name"] = listing.get("address") or "Unknown Property"
+
+    # Format property type with stories
+    prop_type = listing.get("property_type") or ""
+    stories = listing.get("stories")
+    if prop_type.lower() in ["single_family", "singlefamily", "house", "single family"]:
+        if stories:
+            listing["type_display"] = f"House ({stories}-story)"
+        else:
+            listing["type_display"] = "House"
+    elif prop_type.lower() in ["condo", "condominium"]:
+        listing["type_display"] = "Condo"
+    elif prop_type.lower() in ["townhouse", "townhome"]:
+        if stories:
+            listing["type_display"] = f"Townhouse ({stories}-story)"
+        else:
+            listing["type_display"] = "Townhouse"
+    elif prop_type.lower() in ["multi_family", "multifamily"]:
+        listing["type_display"] = "Multi-Family"
+    else:
+        listing["type_display"] = prop_type.replace("_", " ").title() if prop_type else "Home"
 
     return listing
 

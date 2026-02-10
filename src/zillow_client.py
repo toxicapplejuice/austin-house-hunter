@@ -149,6 +149,19 @@ def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
     if not zillow_url and zpid:
         zillow_url = f"https://www.zillow.com/homedetails/{zpid}_zpid/"
 
+    # Get HOA info
+    hoa_fee = prop.get("hoaFee") or prop.get("monthlyHoaFee") or prop.get("associationFee")
+    has_hoa = hoa_fee is not None and hoa_fee > 0
+
+    # Get stories/levels
+    stories = prop.get("stories") or prop.get("levels") or prop.get("numStories")
+
+    # Get description
+    description = prop.get("description") or prop.get("homeDescription") or prop.get("listingSubType", {}).get("text")
+
+    # Get home type for display
+    home_type = prop.get("homeType") or prop.get("propertyType") or ""
+
     return {
         "zpid": str(zpid) if zpid else None,
         "address": address_obj.get("streetAddress") or prop.get("streetAddress") or prop.get("address"),
@@ -159,7 +172,11 @@ def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
         "beds": prop.get("bedrooms") or prop.get("beds"),
         "baths": prop.get("bathrooms") or prop.get("baths"),
         "sqft": prop.get("livingArea") or prop.get("area") or prop.get("sqft"),
-        "property_type": prop.get("homeType") or prop.get("propertyType") or prop.get("homeStatus"),
+        "property_type": home_type,
+        "stories": stories,
+        "has_hoa": has_hoa,
+        "hoa_fee": hoa_fee,
+        "description": description,
         "days_on_market": prop.get("daysOnZillow") or prop.get("timeOnZillow"),
         "photo_url": photo_url or prop.get("imgSrc") or prop.get("image"),
         "zillow_url": zillow_url,
