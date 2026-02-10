@@ -1,0 +1,40 @@
+# Austin House Hunter Configuration
+# Copy this to config.yaml and fill in your criteria
+
+# Search location
+location: "Austin, TX"
+
+# Price range
+min_price: 300000
+max_price: 600000
+
+# Bedrooms
+min_beds: 3
+max_beds: 5
+
+# Bathrooms
+min_baths: 2
+max_baths: null  # null means no limit
+
+# Square footage
+min_sqft: 1500
+max_sqft: null
+
+# Property types (uncomment the ones you want)
+property_types:
+  - single_family
+  # - condo
+  # - townhouse
+  # - multi_family
+
+# Specific zip codes (leave empty for all Austin)
+zip_codes: []
+  # - 78701
+  # - 78702
+  # - 78704
+
+# Maximum days on market (null for no limit)
+max_days_on_market: 14
+
+# Only show new listings since last run
+only_new_listings: true

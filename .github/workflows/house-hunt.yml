@@ -1,0 +1,54 @@
+name: House Hunt
+
+on:
+  # Run twice a week: Monday and Thursday at 9am Central (15:00 UTC)
+  schedule:
+    - cron: '0 15 * * 1,4'
+
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore seen listings cache
+        uses: actions/cache@v4
+        with:
+          path: .seen_listings.json
+          key: seen-listings-${{ github.run_id }}
+          restore-keys: |
+            seen-listings-
+
+      - name: Run house hunter
+        env:
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          # Search criteria (override config.yaml if needed)
+          SEARCH_LOCATION: "Austin, TX"
+          # Add more criteria here or use config.yaml
+        run: |
+          cd src
+          python main.py
+
+      - name: Save seen listings cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .seen_listings.json
+          key: seen-listings-${{ github.run_id }}
