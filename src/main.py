@@ -7,9 +7,14 @@ from pathlib import Path
 
 import yaml
 
+from distance import distance_to_monarch
 from email_sender import EmailSender
 from filters import ListingFilter
 from zillow_client import ZillowClient, parse_listing
+
+# Configuration
+MAX_LISTINGS = 5  # Top N listings to show
+DATA_DIR = Path(__file__).parent.parent / "data"
 
 
 def load_config() -> dict:
@@ -37,20 +42,113 @@ def load_config() -> dict:
     }
 
 
-def load_seen_listings() -> set[str]:
-    """Load previously seen listing IDs to avoid duplicates."""
-    seen_path = Path(__file__).parent.parent / ".seen_listings.json"
-    if seen_path.exists():
-        with open(seen_path) as f:
-            return set(json.load(f))
-    return set()
+def load_json_file(filename: str) -> dict | list:
+    """Load a JSON file from data directory."""
+    DATA_DIR.mkdir(exist_ok=True)
+    filepath = DATA_DIR / filename
+    if filepath.exists():
+        with open(filepath) as f:
+            return json.load(f)
+    return {} if filename.endswith("favorites.json") else []
 
 
-def save_seen_listings(seen: set[str]) -> None:
-    """Save seen listing IDs for next run."""
-    seen_path = Path(__file__).parent.parent / ".seen_listings.json"
-    with open(seen_path, "w") as f:
-        json.dump(list(seen), f)
+def save_json_file(filename: str, data: dict | list) -> None:
+    """Save data to a JSON file in data directory."""
+    DATA_DIR.mkdir(exist_ok=True)
+    filepath = DATA_DIR / filename
+    with open(filepath, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def load_favorites() -> dict[str, dict]:
+    """Load favorited listings. Returns dict of zpid -> listing data."""
+    return load_json_file("favorites.json")
+
+
+def load_dismissed() -> list[str]:
+    """Load dismissed zpids."""
+    return load_json_file("dismissed.json")
+
+
+def load_pending() -> list[str]:
+    """Load pending zpids (shown but not yet favorited/dismissed)."""
+    return load_json_file("pending.json")
+
+
+def save_favorites(favorites: dict[str, dict]) -> None:
+    """Save favorites."""
+    save_json_file("favorites.json", favorites)
+
+
+def save_dismissed(dismissed: list[str]) -> None:
+    """Save dismissed list."""
+    save_json_file("dismissed.json", dismissed)
+
+
+def save_pending(pending: list[str]) -> None:
+    """Save pending list."""
+    save_json_file("pending.json", pending)
+
+
+def calculate_relevance_score(listing: dict, config: dict) -> float:
+    """
+    Calculate a relevance score for ranking listings.
+
+    Score components (higher is better):
+    - Distance score (40%): Closer to downtown = better
+    - Price score (30%): Lower price within range = better
+    - Newness score (30%): Fewer days on market = better
+
+    Returns a score from 0 to 100.
+    """
+    # Distance score (0-100, closer is better)
+    distance = listing.get("distance")
+    if distance is not None:
+        # Assume max relevant distance is 20 miles
+        distance_score = max(0, 100 - (distance / 20) * 100)
+    else:
+        distance_score = 50  # Default middle score
+
+    # Price score (0-100, lower is better within range)
+    price = listing.get("price") or 0
+    min_price = config.get("min_price") or 0
+    max_price = config.get("max_price") or price * 2
+    if max_price > min_price:
+        price_score = 100 - ((price - min_price) / (max_price - min_price)) * 100
+        price_score = max(0, min(100, price_score))
+    else:
+        price_score = 50
+
+    # Newness score (0-100, fewer days is better)
+    days = listing.get("days_on_market") or 30  # Default to 30 if unknown
+    # Assume 60+ days is old
+    newness_score = max(0, 100 - (days / 60) * 100)
+
+    # Weighted combination
+    total_score = (
+        0.4 * distance_score +
+        0.3 * price_score +
+        0.3 * newness_score
+    )
+
+    return total_score
+
+
+def enrich_listing(listing: dict) -> dict:
+    """Add calculated fields to a listing."""
+    # Calculate distance to Monarch Apartments
+    lat = listing.get("latitude")
+    lon = listing.get("longitude")
+    if lat and lon:
+        listing["distance"] = distance_to_monarch(lat, lon)
+    else:
+        listing["distance"] = None
+
+    # Use address as name if no description
+    if not listing.get("name"):
+        listing["name"] = listing.get("address") or "Unknown Property"
+
+    return listing
 
 
 def main() -> int:
@@ -74,6 +172,20 @@ def main() -> int:
         print("RECIPIENT_EMAIL environment variable is required")
         return 1
 
+    # Load existing data
+    favorites = load_favorites()
+    dismissed = load_dismissed()
+    pending = load_pending()
+
+    print(f"Loaded {len(favorites)} favorites, {len(dismissed)} dismissed, {len(pending)} pending")
+
+    # Move pending to dismissed (they weren't favorited since last run)
+    if pending:
+        print(f"Moving {len(pending)} pending listings to dismissed")
+        dismissed.extend(pending)
+        save_dismissed(dismissed)
+        save_pending([])
+
     # Build search prompt from config
     search_prompt = zillow.build_search_prompt(config)
     print(f"Search prompt: {search_prompt}")
@@ -86,9 +198,6 @@ def main() -> int:
         print(f"Error fetching listings: {e}")
         return 1
 
-    # Debug: print response structure
-    print(f"API Response keys: {list(response.keys()) if isinstance(response, dict) else 'not a dict'}")
-    print(f"API Response preview: {json.dumps(response, indent=2)[:2000]}")
 
     # Parse listings - handle different response structures
     raw_listings = (
@@ -109,26 +218,58 @@ def main() -> int:
     filtered = listing_filter.filter_listings(listings)
     print(f"After filtering: {len(filtered)} listings match criteria")
 
-    # Filter out previously seen listings if configured
-    if config.get("only_new_listings", True):
-        seen = load_seen_listings()
-        new_listings = [l for l in filtered if l.get("zpid") not in seen]
-        print(f"New listings (not seen before): {len(new_listings)}")
+    # Enrich with distance calculations
+    for listing in filtered:
+        enrich_listing(listing)
 
-        # Update seen listings
-        for l in filtered:
-            if l.get("zpid"):
-                seen.add(l["zpid"])
-        save_seen_listings(seen)
+    # Filter out favorites and dismissed
+    favorite_zpids = set(favorites.keys())
+    dismissed_zpids = set(dismissed)
+    new_listings = [
+        l for l in filtered
+        if l.get("zpid") and l["zpid"] not in favorite_zpids and l["zpid"] not in dismissed_zpids
+    ]
+    print(f"After removing favorites/dismissed: {len(new_listings)} new listings")
 
-        filtered = new_listings
+    # Calculate relevance scores and sort
+    for listing in new_listings:
+        listing["relevance_score"] = calculate_relevance_score(listing, config)
 
-    # Sort by price (lowest first, None prices at end)
-    filtered.sort(key=lambda x: x.get("price") or float("inf"))
+    new_listings.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
+
+    # Take top N
+    top_listings = new_listings[:MAX_LISTINGS]
+    print(f"Top {len(top_listings)} listings selected")
+
+    # Save these as pending (will be dismissed next run if not favorited)
+    new_pending = [l["zpid"] for l in top_listings if l.get("zpid")]
+    save_pending(new_pending)
+
+    # Prepare favorites list for email (enrich with current data if available)
+    favorites_list = []
+    for zpid, fav_data in favorites.items():
+        # Try to find fresh data for this listing
+        fresh = next((l for l in filtered if l.get("zpid") == zpid), None)
+        if fresh:
+            enrich_listing(fresh)
+            favorites_list.append(fresh)
+        else:
+            # Use stored data
+            favorites_list.append(fav_data)
+
+    # Sort favorites by distance
+    favorites_list.sort(key=lambda x: x.get("distance") or float("inf"))
 
     # Send email
     print(f"Sending email to {recipient}...")
-    success = email_sender.send_listings(recipient, filtered)
+    print(f"  - {len(favorites_list)} favorites")
+    print(f"  - {len(top_listings)} new listings")
+
+    success = email_sender.send_listings(
+        recipient=recipient,
+        new_listings=top_listings,
+        favorites=favorites_list,
+    )
 
     if success:
         print("Done!")

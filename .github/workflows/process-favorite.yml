@@ -1,0 +1,93 @@
+name: Process Favorite
+
+on:
+  issues:
+    types: [opened]
+
+jobs:
+  process:
+    # Only run if issue title starts with "FAVORITE:"
+    if: startsWith(github.event.issue.title, 'FAVORITE:')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Extract ZPID and update favorites
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+        run: |
+          # Extract zpid from issue title (format: "FAVORITE: 12345678")
+          ZPID=$(echo "$ISSUE_TITLE" | sed 's/FAVORITE:[[:space:]]*//')
+          echo "Processing favorite for ZPID: $ZPID"
+
+          # Create data directory if it doesn't exist
+          mkdir -p data
+
+          # Create or update favorites.json
+          python3 << EOF
+          import json
+          import os
+          from pathlib import Path
+
+          zpid = "$ZPID".strip()
+          favorites_file = Path("data/favorites.json")
+
+          # Load existing favorites
+          if favorites_file.exists():
+              with open(favorites_file) as f:
+                  favorites = json.load(f)
+          else:
+              favorites = {}
+
+          # Add the new favorite with minimal data
+          # The main script will enrich this with fresh data
+          if zpid not in favorites:
+              favorites[zpid] = {
+                  "zpid": zpid,
+                  "name": f"Property {zpid}",
+                  "zillow_url": f"https://www.zillow.com/homedetails/{zpid}_zpid/",
+                  "favorited_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              }
+              print(f"Added {zpid} to favorites")
+          else:
+              print(f"{zpid} already in favorites")
+
+          # Save
+          with open(favorites_file, "w") as f:
+              json.dump(favorites, f, indent=2)
+
+          print(f"Total favorites: {len(favorites)}")
+          EOF
+
+      - name: Commit and push favorites
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/favorites.json
+          git diff --staged --quiet || git commit -m "Add favorite: ${{ github.event.issue.title }}"
+          git push
+
+      - name: Close issue with comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: '✅ Added to your favorites! You\'ll see this property in your next house hunting email.'
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'closed'
+            });

@@ -25,31 +25,21 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore seen listings cache
-        uses: actions/cache@v4
-        with:
-          path: .seen_listings.json
-          key: seen-listings-${{ github.run_id }}
-          restore-keys: |
-            seen-listings-
-
       - name: Run house hunter
         env:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
-          # Search criteria (override config.yaml if needed)
           SEARCH_LOCATION: "Austin, TX"
-          # Add more criteria here or use config.yaml
         run: |
           cd src
           python main.py
 
-      - name: Save seen listings cache
-        uses: actions/cache/save@v4
-        if: always()
-        with:
-          path: .seen_listings.json
-          key: seen-listings-${{ github.run_id }}
-        continue-on-error: true
+      - name: Commit data file changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet || git commit -m "Update listing data (pending/dismissed)"
+          git push
