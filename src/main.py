@@ -123,8 +123,8 @@ def main() -> int:
 
         filtered = new_listings
 
-    # Sort by price (lowest first)
-    filtered.sort(key=lambda x: x.get("price", float("inf")))
+    # Sort by price (lowest first, None prices at end)
+    filtered.sort(key=lambda x: x.get("price") or float("inf"))
 
     # Send email
     print(f"Sending email to {recipient}...")
