@@ -1,7 +1,7 @@
 # Austin House Hunter Configuration
 
-# Search location - "near downtown" helps the AI search focus on central areas
-location: "Austin, TX near downtown"
+# Search location
+location: "Austin, TX"
 
 # Price range
 min_price: 650000

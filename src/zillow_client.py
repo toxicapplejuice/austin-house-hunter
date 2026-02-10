@@ -76,61 +76,22 @@ class ZillowClient:
         Returns:
             Natural language prompt string
         """
-        parts = []
-
         # Location
         location = config.get("location", "Austin, TX")
-
-        # Bedrooms
-        min_beds = config.get("min_beds")
-        max_beds = config.get("max_beds")
-        if min_beds and max_beds:
-            parts.append(f"{min_beds}-{max_beds} bedroom")
-        elif min_beds:
-            parts.append(f"{min_beds}+ bedroom")
-
-        # Property type
-        property_types = config.get("property_types", [])
-        if property_types:
-            type_map = {
-                "single_family": "single family homes",
-                "condo": "condos",
-                "townhouse": "townhouses",
-                "multi_family": "multi-family homes",
-            }
-            types_str = " or ".join(type_map.get(t, t) for t in property_types)
-            parts.append(types_str)
-        else:
-            parts.append("homes")
-
-        parts.append("for sale in")
-        parts.append(location)
-
-        # Bathrooms
-        min_baths = config.get("min_baths")
-        if min_baths:
-            parts.append(f"with {min_baths}+ bathrooms")
 
         # Price
         min_price = config.get("min_price")
         max_price = config.get("max_price")
-        if min_price and max_price:
-            parts.append(f"${min_price:,} to ${max_price:,}")
-        elif max_price:
-            parts.append(f"under ${max_price:,}")
-        elif min_price:
-            parts.append(f"over ${min_price:,}")
 
-        # Square footage
-        min_sqft = config.get("min_sqft")
-        max_sqft = config.get("max_sqft")
-        if min_sqft:
-            parts.append(f"{min_sqft:,}+ sqft")
+        # Build a simpler, more direct prompt
+        # Format: "houses for sale in Austin TX under $1.7M"
+        parts = ["houses for sale in", location]
 
-        # Days on market
-        max_days = config.get("max_days_on_market")
-        if max_days:
-            parts.append(f"listed in last {max_days} days")
+        if max_price:
+            if max_price >= 1_000_000:
+                parts.append(f"under ${max_price / 1_000_000:.1f}M")
+            else:
+                parts.append(f"under ${max_price:,.0f}")
 
         return " ".join(parts)
 
