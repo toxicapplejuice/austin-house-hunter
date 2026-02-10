@@ -52,3 +52,4 @@ jobs:
         with:
           path: .seen_listings.json
           key: seen-listings-${{ github.run_id }}
+        continue-on-error: true
