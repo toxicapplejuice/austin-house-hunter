@@ -1,9 +1,9 @@
 name: House Hunt
 
 on:
-  # Run twice a week: Monday and Thursday at 9am Central (15:00 UTC)
+  # Run twice a week: Tuesday and Friday at 9am Central (15:00 UTC)
   schedule:
-    - cron: '0 15 * * 1,4'
+    - cron: '0 15 * * 2,5'
 
   # Allow manual trigger for testing
   workflow_dispatch:
@@ -36,6 +36,7 @@ jobs:
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
+          RECIPIENT_EMAIL_2: ${{ secrets.RECIPIENT_EMAIL_2 }}
           SEARCH_LOCATION: "Austin, TX"
         run: |
           cd src

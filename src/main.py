@@ -197,10 +197,21 @@ def main() -> int:
         print(f"Configuration error: {e}")
         return 1
 
-    recipient = os.environ.get("RECIPIENT_EMAIL")
-    if not recipient:
+    # Support multiple recipients
+    recipients = []
+    recipient_1 = os.environ.get("RECIPIENT_EMAIL")
+    recipient_2 = os.environ.get("RECIPIENT_EMAIL_2")
+
+    if recipient_1:
+        recipients.append(recipient_1)
+    if recipient_2:
+        recipients.append(recipient_2)
+
+    if not recipients:
         print("RECIPIENT_EMAIL environment variable is required")
         return 1
+
+    print(f"Will send to {len(recipients)} recipient(s)")
 
     # Load existing data
     favorites = load_favorites()
@@ -317,22 +328,28 @@ def main() -> int:
     # Sort favorites by distance
     favorites_list.sort(key=lambda x: x.get("distance") or float("inf"))
 
-    # Send email
-    print(f"Sending email to {recipient}...")
+    # Send email to all recipients
+    print(f"Sending email...")
     print(f"  - {len(favorites_list)} favorites")
     print(f"  - {len(top_listings)} new listings")
+    print(f"  - {len(recipients)} recipient(s)")
 
-    success = email_sender.send_listings(
-        recipient=recipient,
-        new_listings=top_listings,
-        favorites=favorites_list,
-    )
+    all_success = True
+    for recipient in recipients:
+        print(f"  Sending to {recipient}...")
+        success = email_sender.send_listings(
+            recipient=recipient,
+            new_listings=top_listings,
+            favorites=favorites_list,
+        )
+        if not success:
+            all_success = False
 
-    if success:
+    if all_success:
         print("Done!")
         return 0
     else:
-        print("Failed to send email")
+        print("Some emails failed to send")
         return 1
 
 
