@@ -86,8 +86,18 @@ def main() -> int:
         print(f"Error fetching listings: {e}")
         return 1
 
+    # Debug: print response structure
+    print(f"API Response keys: {list(response.keys()) if isinstance(response, dict) else 'not a dict'}")
+    print(f"API Response preview: {json.dumps(response, indent=2)[:2000]}")
+
     # Parse listings - handle different response structures
-    raw_listings = response.get("results", []) or response.get("props", []) or []
+    raw_listings = (
+        response.get("results", [])
+        or response.get("props", [])
+        or response.get("searchResults", [])
+        or response.get("data", [])
+        or []
+    )
     if not raw_listings and isinstance(response, list):
         raw_listings = response
     print(f"Found {len(raw_listings)} raw listings")
