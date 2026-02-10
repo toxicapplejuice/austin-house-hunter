@@ -9,8 +9,8 @@ venv/
 env/
 .env
 
-# Config with secrets
-config.yaml
+# Local env files (config.yaml is safe to commit - no secrets)
+.env
 
 # Seen listings (local only, cached in GitHub Actions)
 .seen_listings.json

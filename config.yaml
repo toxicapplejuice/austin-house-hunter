@@ -1,0 +1,30 @@
+# Austin House Hunter Configuration
+
+# Search location - "near downtown" helps the AI search focus on central areas
+location: "Austin, TX near downtown"
+
+# Price range
+min_price: 500000
+max_price: 1500000
+
+# Bedrooms
+min_beds: 3
+max_beds: null  # no limit
+
+# Bathrooms
+min_baths: 2
+max_baths: null
+
+# Square footage
+min_sqft: 1000
+max_sqft: null
+
+# Property types
+property_types:
+  - single_family
+
+# Maximum days on market (null for no limit, or set to 14 for newer listings)
+max_days_on_market: null
+
+# Only show new listings since last run
+only_new_listings: true
