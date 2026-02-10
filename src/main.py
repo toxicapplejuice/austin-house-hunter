@@ -9,12 +9,21 @@ import yaml
 
 from email_sender import EmailSender
 from filters import ListingFilter
+from learning import (
+    calculate_preference_boost,
+    load_preferences,
+    save_preferences,
+    update_preferences_from_favorites,
+)
 from location import distance_to_sapphire, get_neighborhood
 from zillow_client import ZillowClient, parse_listing
 
 # Configuration
 MAX_LISTINGS = 5  # Top N listings to show
 DATA_DIR = Path(__file__).parent.parent / "data"
+
+# TESTING MODE: Set to True to disable dismissal (keep showing all houses)
+TESTING_MODE = True
 
 
 def load_config() -> dict:
@@ -90,16 +99,17 @@ def save_pending(pending: list[str]) -> None:
     save_json_file("pending.json", pending)
 
 
-def calculate_relevance_score(listing: dict, config: dict) -> float:
+def calculate_relevance_score(listing: dict, config: dict, preferences: dict) -> float:
     """
     Calculate a relevance score for ranking listings.
 
     Score components (higher is better):
-    - Distance score (40%): Closer to downtown = better
+    - Distance score (40%): Closer to Sapphire = better
     - Price score (30%): Lower price within range = better
     - Newness score (30%): Fewer days on market = better
+    - Preference boost: Multiplier based on learned preferences
 
-    Returns a score from 0 to 100.
+    Returns a score from 0 to 100+.
     """
     # Distance score (0-100, closer is better)
     distance = listing.get("distance")
@@ -125,11 +135,15 @@ def calculate_relevance_score(listing: dict, config: dict) -> float:
     newness_score = max(0, 100 - (days / 60) * 100)
 
     # Weighted combination
-    total_score = (
+    base_score = (
         0.4 * distance_score +
         0.3 * price_score +
         0.3 * newness_score
     )
+
+    # Apply preference boost (learned from favorites)
+    preference_boost = calculate_preference_boost(listing, preferences)
+    total_score = base_score * preference_boost
 
     return total_score
 
@@ -162,32 +176,14 @@ def enrich_listing(listing: dict) -> dict:
     elif not listing.get("name"):
         listing["name"] = listing.get("address") or "Unknown Property"
 
-    # Format property type with stories
-    prop_type = listing.get("property_type") or ""
-    stories = listing.get("stories")
-    if prop_type.lower() in ["single_family", "singlefamily", "house", "single family"]:
-        if stories:
-            listing["type_display"] = f"House ({stories}-story)"
-        else:
-            listing["type_display"] = "House"
-    elif prop_type.lower() in ["condo", "condominium"]:
-        listing["type_display"] = "Condo"
-    elif prop_type.lower() in ["townhouse", "townhome"]:
-        if stories:
-            listing["type_display"] = f"Townhouse ({stories}-story)"
-        else:
-            listing["type_display"] = "Townhouse"
-    elif prop_type.lower() in ["multi_family", "multifamily"]:
-        listing["type_display"] = "Multi-Family"
-    else:
-        listing["type_display"] = prop_type.replace("_", " ").title() if prop_type else "Home"
-
     return listing
 
 
 def main() -> int:
     """Run the house hunter."""
     print("Austin House Hunter starting...")
+    if TESTING_MODE:
+        print("*** TESTING MODE: Dismissal disabled ***")
 
     # Load configuration
     config = load_config()
@@ -213,12 +209,23 @@ def main() -> int:
 
     print(f"Loaded {len(favorites)} favorites, {len(dismissed)} dismissed, {len(pending)} pending")
 
-    # Move pending to dismissed (they weren't favorited since last run)
-    if pending:
-        print(f"Moving {len(pending)} pending listings to dismissed")
-        dismissed.extend(pending)
-        save_dismissed(dismissed)
-        save_pending([])
+    # Update learned preferences from favorites
+    if favorites:
+        print("Updating learned preferences from favorites...")
+        preferences = update_preferences_from_favorites(favorites)
+        save_preferences(preferences)
+        print(f"  Preferred neighborhoods: {preferences.get('preferred_neighborhoods', [])}")
+    else:
+        preferences = load_preferences()
+
+    # TESTING MODE: Skip dismissal logic
+    if not TESTING_MODE:
+        # Move pending to dismissed (they weren't favorited since last run)
+        if pending:
+            print(f"Moving {len(pending)} pending listings to dismissed")
+            dismissed.extend(pending)
+            save_dismissed(dismissed)
+            save_pending([])
 
     # Build search prompt from config
     search_prompt = zillow.build_search_prompt(config)
@@ -231,7 +238,6 @@ def main() -> int:
     except Exception as e:
         print(f"Error fetching listings: {e}")
         return 1
-
 
     # Parse listings - handle different response structures
     raw_listings = (
@@ -256,18 +262,28 @@ def main() -> int:
     for listing in filtered:
         enrich_listing(listing)
 
-    # Filter out favorites and dismissed
+    # Filter out favorites (always exclude favorites from new listings)
     favorite_zpids = set(favorites.keys())
-    dismissed_zpids = set(dismissed)
-    new_listings = [
-        l for l in filtered
-        if l.get("zpid") and l["zpid"] not in favorite_zpids and l["zpid"] not in dismissed_zpids
-    ]
-    print(f"After removing favorites/dismissed: {len(new_listings)} new listings")
+
+    if TESTING_MODE:
+        # In testing mode, only exclude favorites, not dismissed
+        new_listings = [
+            l for l in filtered
+            if l.get("zpid") and l["zpid"] not in favorite_zpids
+        ]
+        print(f"After removing favorites only (testing mode): {len(new_listings)} new listings")
+    else:
+        # Normal mode: exclude both favorites and dismissed
+        dismissed_zpids = set(dismissed)
+        new_listings = [
+            l for l in filtered
+            if l.get("zpid") and l["zpid"] not in favorite_zpids and l["zpid"] not in dismissed_zpids
+        ]
+        print(f"After removing favorites/dismissed: {len(new_listings)} new listings")
 
     # Calculate relevance scores and sort
     for listing in new_listings:
-        listing["relevance_score"] = calculate_relevance_score(listing, config)
+        listing["relevance_score"] = calculate_relevance_score(listing, config, preferences)
 
     new_listings.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
 
@@ -275,9 +291,15 @@ def main() -> int:
     top_listings = new_listings[:MAX_LISTINGS]
     print(f"Top {len(top_listings)} listings selected")
 
-    # Save these as pending (will be dismissed next run if not favorited)
-    new_pending = [l["zpid"] for l in top_listings if l.get("zpid")]
-    save_pending(new_pending)
+    # Log top listings with scores
+    for i, l in enumerate(top_listings):
+        print(f"  {i+1}. {l.get('address', 'Unknown')} - Score: {l.get('relevance_score', 0):.1f}, "
+              f"Neighborhood: {l.get('neighborhood', 'Unknown')}")
+
+    # Save these as pending (only matters if not in testing mode)
+    if not TESTING_MODE:
+        new_pending = [l["zpid"] for l in top_listings if l.get("zpid")]
+        save_pending(new_pending)
 
     # Prepare favorites list for email (enrich with current data if available)
     favorites_list = []
@@ -288,7 +310,8 @@ def main() -> int:
             enrich_listing(fresh)
             favorites_list.append(fresh)
         else:
-            # Use stored data
+            # Use stored data, but enrich it
+            enrich_listing(fav_data)
             favorites_list.append(fav_data)
 
     # Sort favorites by distance

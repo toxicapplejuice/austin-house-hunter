@@ -13,7 +13,7 @@ from financials import (
     get_assumptions_text,
 )
 
-# GitHub repo for favorite links
+# GitHub repo for favorite/feedback links
 GITHUB_REPO = "toxicapplejuice/austin-house-hunter"
 
 # Professional color palette (inspired by modern SaaS)
@@ -54,17 +54,7 @@ class EmailSender:
         new_listings: list[dict[str, Any]],
         favorites: list[dict[str, Any]] | None = None,
     ) -> bool:
-        """
-        Send an email with house listings in table format.
-
-        Args:
-            recipient: Email address to send to
-            new_listings: List of new listing dictionaries (top 5)
-            favorites: List of favorited listing dictionaries
-
-        Returns:
-            True if email sent successfully
-        """
+        """Send an email with house listings in table format."""
         favorites = favorites or []
         date_str = datetime.now().strftime("%B %d, %Y")
 
@@ -85,7 +75,6 @@ class EmailSender:
             "Good day! It's Bob, back with your Austin property update.",
             "Hello! Bob reporting in with the latest from the Austin market.",
         ]
-        # Pick based on day
         greeting = greetings[datetime.now().day % len(greetings)]
 
         if new_count > 0 and favorites_count > 0:
@@ -132,12 +121,14 @@ class EmailSender:
         if len(name) > 35:
             name = name[:32] + "..."
 
+        # Price (2nd column)
+        price = listing.get("price") or 0
+        price_str = f"${price:,.0f}" if price else "N/A"
+
+        # Bed/Bath
         beds = listing.get("beds") or "?"
         baths = listing.get("baths") or "?"
         beds_baths = f"{beds}bd/{baths}ba"
-
-        # Property type with stories
-        type_display = listing.get("type_display") or "Home"
 
         # Neighborhood with direction
         neighborhood = listing.get("neighborhood") or "Austin"
@@ -146,19 +137,18 @@ class EmailSender:
             neighborhood_display = f"{neighborhood} ({direction})"
         else:
             neighborhood_display = neighborhood
-        if len(neighborhood_display) > 25:
-            neighborhood_display = neighborhood_display[:22] + "..."
+        if len(neighborhood_display) > 28:
+            neighborhood_display = neighborhood_display[:25] + "..."
 
         # HOA
         has_hoa = listing.get("has_hoa")
         hoa_display = "Yes" if has_hoa else "No"
 
+        # Distance to Sapphire
         distance = listing.get("distance")
         distance_str = f"{distance:.1f} mi" if distance else "N/A"
 
-        price = listing.get("price") or 0
-        price_str = f"${price:,.0f}" if price else "N/A"
-
+        # Financials
         down = calculate_down_payment(price) if price else 0
         down_str = f"${down:,.0f}" if down else "N/A"
 
@@ -168,7 +158,7 @@ class EmailSender:
         zillow_url = listing.get("zillow_url") or "#"
         zpid = listing.get("zpid") or ""
 
-        # Favorite link creates a GitHub issue
+        # Favorite link
         favorite_url = f"https://github.com/{GITHUB_REPO}/issues/new?title=FAVORITE:%20{zpid}&body=Favoriting%20property%20{zpid}&labels=favorite"
 
         favorite_cell = ""
@@ -180,17 +170,17 @@ class EmailSender:
                    font-size: 12px; font-weight: 500;">★ Save</a>
             </td>'''
 
+        # Column order: Property, Price, Bed/Bath, Neighborhood, HOA, To Sapphire, Down, Est. Monthly, Action
         return f'''
         <tr>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']};">
                 <a href="{zillow_url}" style="color: {COLORS['accent']}; text-decoration: none; font-weight: 500;">{name}</a>
             </td>
-            <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{type_display}</td>
+            <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; font-weight: 600; color: {COLORS['text']};">{price_str}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{beds_baths}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']}; font-size: 13px;">{neighborhood_display}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{hoa_display}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{distance_str}</td>
-            <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; font-weight: 600; color: {COLORS['text']};">{price_str}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{down_str}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{monthly_str}</td>
             {favorite_cell}
@@ -207,35 +197,33 @@ class EmailSender:
 
         bob_greeting = self._get_bob_greeting(len(new_listings), len(favorites))
 
-        # Table headers
-        headers_with_action = '''
+        # Table headers - Column order: Property, Price, Bed/Bath, Neighborhood, HOA, To Sapphire, Down, Est. Monthly, Action
+        headers_with_action = f'''
             <tr style="background-color: #F1F5F9;">
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Property</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Type</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Bed/Bath</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Neighborhood</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">HOA</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">To Sapphire</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Price</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Down (20%)</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Est. Monthly</th>
-                <th style="padding: 12px 8px; text-align: center; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Action</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Property</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Price</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Bed/Bath</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Neighborhood</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">HOA</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">To Sapphire</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Down (20%)</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Est. Monthly</th>
+                <th style="padding: 12px 8px; text-align: center; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Action</th>
             </tr>
-        '''.format(**COLORS)
+        '''
 
-        headers_no_action = '''
+        headers_no_action = f'''
             <tr style="background-color: #F1F5F9;">
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Property</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Type</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Bed/Bath</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Neighborhood</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">HOA</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">To Sapphire</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Price</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Down (20%)</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {border}; color: {primary}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Est. Monthly</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Property</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Price</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Bed/Bath</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Neighborhood</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">HOA</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">To Sapphire</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Down (20%)</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Est. Monthly</th>
             </tr>
-        '''.format(**COLORS)
+        '''
 
         # Favorites section
         favorites_html = ""
@@ -294,6 +282,9 @@ class EmailSender:
         # Assumptions section
         assumptions = get_assumptions_text().replace("\n", "<br>")
 
+        # Feedback link
+        feedback_url = f"https://github.com/{GITHUB_REPO}/issues/new?title=FEEDBACK&body=Tell%20Bob%20what%20you%27d%20like%20to%20see%20more%20of%20(neighborhoods%2C%20price%20range%2C%20features)%3A%0A%0A&labels=feedback"
+
         return f'''
         <!DOCTYPE html>
         <html>
@@ -343,7 +334,7 @@ class EmailSender:
 
                 <!-- Assumptions Footer -->
                 <div style="background-color: white; padding: 24px 32px; border: 1px solid {COLORS['border']};
-                            border-top: none; border-radius: 0 0 12px 12px;">
+                            border-top: none;">
                     <div style="font-size: 12px; font-weight: 600; color: {COLORS['secondary']};
                                 text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px;">
                         Calculation Assumptions
@@ -351,6 +342,17 @@ class EmailSender:
                     <div style="color: {COLORS['muted']}; font-size: 12px; line-height: 1.8;">
                         {assumptions}
                     </div>
+                </div>
+
+                <!-- Feedback Section -->
+                <div style="background-color: {COLORS['primary']}; padding: 24px 32px; border-radius: 0 0 12px 12px;
+                            text-align: center;">
+                    <div style="color: white; font-size: 14px; margin-bottom: 12px;">
+                        Want to see different properties? Tell Bob what you're looking for.
+                    </div>
+                    <a href="{feedback_url}" style="display: inline-block; background-color: {COLORS['accent']};
+                       color: white; padding: 10px 24px; text-decoration: none; border-radius: 6px;
+                       font-size: 14px; font-weight: 500;">💬 Give Feedback</a>
                 </div>
 
                 <!-- Footer -->
@@ -410,6 +412,9 @@ class EmailSender:
         lines.append("CALCULATION ASSUMPTIONS")
         lines.append("-" * 40)
         lines.append(get_assumptions_text())
+        lines.append("")
+        lines.append("Want to see different properties? Give feedback:")
+        lines.append(f"https://github.com/{GITHUB_REPO}/issues/new?labels=feedback")
 
         return "\n".join(lines)
 

@@ -1,0 +1,13 @@
+{
+  "preferred_neighborhoods": [],
+  "neighborhood_weights": {},
+  "ideal_price": null,
+  "ideal_sqft": null,
+  "ideal_beds": null,
+  "ideal_baths": null,
+  "hoa_preference": null,
+  "price_history": [],
+  "sqft_history": [],
+  "beds_history": [],
+  "baths_history": []
+}

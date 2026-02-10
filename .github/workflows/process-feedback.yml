@@ -1,0 +1,178 @@
+name: Process Feedback
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  process:
+    # Only run if issue title starts with "FEEDBACK" or has feedback label
+    if: startsWith(github.event.issue.title, 'FEEDBACK') || contains(github.event.issue.labels.*.name, 'feedback')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Process feedback
+        env:
+          FEEDBACK_TEXT: ${{ github.event.issue.body }}
+        run: |
+          python3 << 'EOF'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          feedback = os.environ.get("FEEDBACK_TEXT", "").lower()
+          print(f"Processing feedback: {feedback[:200]}...")
+
+          changes = []
+          data_dir = Path("data")
+          data_dir.mkdir(exist_ok=True)
+
+          # Load current preferences
+          prefs_file = data_dir / "preferences.json"
+          if prefs_file.exists():
+              with open(prefs_file) as f:
+                  prefs = json.load(f)
+          else:
+              prefs = {
+                  "preferred_neighborhoods": [],
+                  "neighborhood_weights": {},
+                  "ideal_price": None,
+                  "ideal_sqft": None,
+                  "hoa_preference": None
+              }
+
+          # Neighborhood keywords
+          neighborhoods = [
+              "mueller", "hyde park", "east austin", "south congress", "zilker",
+              "barton hills", "travis heights", "clarksville", "tarrytown",
+              "rosedale", "crestview", "allandale", "downtown", "domain",
+              "pflugerville", "round rock", "cedar park", "buda", "kyle",
+              "north loop", "cherrywood", "windsor park", "brentwood"
+          ]
+
+          for neighborhood in neighborhoods:
+              if neighborhood in feedback:
+                  if any(word in feedback for word in ["more", "like", "prefer", "love", "want"]):
+                      n_title = neighborhood.title()
+                      if "preferred_neighborhoods" not in prefs:
+                          prefs["preferred_neighborhoods"] = []
+                      if n_title not in prefs["preferred_neighborhoods"]:
+                          prefs["preferred_neighborhoods"].append(n_title)
+                          if "neighborhood_weights" not in prefs:
+                              prefs["neighborhood_weights"] = {}
+                          prefs["neighborhood_weights"][n_title] = 1.5
+                          changes.append(f"Added {n_title} to preferred neighborhoods")
+                  elif any(word in feedback for word in ["less", "avoid", "no ", "don't", "hate"]):
+                      n_title = neighborhood.title()
+                      if n_title in prefs.get("preferred_neighborhoods", []):
+                          prefs["preferred_neighborhoods"].remove(n_title)
+                          changes.append(f"Removed {n_title} from preferred neighborhoods")
+                      if "neighborhood_weights" not in prefs:
+                          prefs["neighborhood_weights"] = {}
+                      prefs["neighborhood_weights"][n_title] = 0.5
+                      changes.append(f"Reduced weight for {n_title}")
+
+          # HOA preference
+          if "no hoa" in feedback or "without hoa" in feedback or "hate hoa" in feedback:
+              prefs["hoa_preference"] = False
+              changes.append("Set preference: No HOA")
+          elif "with hoa" in feedback or "prefer hoa" in feedback or "like hoa" in feedback:
+              prefs["hoa_preference"] = True
+              changes.append("Set preference: With HOA")
+
+          # Price updates - check config.yaml
+          config_file = Path("config.yaml")
+          config_changes = []
+
+          price_match = re.search(r'(?:max|maximum|under|below)\s*(?:price)?\s*\$?([\d,.]+)\s*([mk])?', feedback)
+          if price_match:
+              price_str = price_match.group(1).replace(",", "")
+              multiplier = 1
+              if price_match.group(2):
+                  if price_match.group(2).lower() == 'm':
+                      multiplier = 1_000_000
+                  elif price_match.group(2).lower() == 'k':
+                      multiplier = 1_000
+              new_max = int(float(price_str) * multiplier)
+              config_changes.append(f"max_price: {new_max}")
+              changes.append(f"Update max price to ${new_max:,}")
+
+          min_price_match = re.search(r'(?:min|minimum|above|over|at least)\s*(?:price)?\s*\$?([\d,.]+)\s*([mk])?', feedback)
+          if min_price_match:
+              price_str = min_price_match.group(1).replace(",", "")
+              multiplier = 1
+              if min_price_match.group(2):
+                  if min_price_match.group(2).lower() == 'm':
+                      multiplier = 1_000_000
+                  elif min_price_match.group(2).lower() == 'k':
+                      multiplier = 1_000
+              new_min = int(float(price_str) * multiplier)
+              config_changes.append(f"min_price: {new_min}")
+              changes.append(f"Update min price to ${new_min:,}")
+
+          # Save preferences
+          with open(prefs_file, "w") as f:
+              json.dump(prefs, f, indent=2)
+
+          # Create summary
+          if changes:
+              print("Changes made:")
+              for c in changes:
+                  print(f"  - {c}")
+          else:
+              print("No actionable changes detected from feedback")
+
+          # Save summary for GitHub Actions
+          summary = "\\n".join(changes) if changes else "No specific changes detected, but feedback noted!"
+          with open("feedback_summary.txt", "w") as f:
+              f.write(summary)
+          EOF
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet || git commit -m "Update preferences from feedback"
+          git push
+
+      - name: Close issue with summary
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let summary = "No specific changes detected, but I've noted your feedback!";
+            try {
+              summary = fs.readFileSync('feedback_summary.txt', 'utf8');
+            } catch (e) {}
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `Thanks for the feedback! Here's what I understood:\n\n${summary}\n\nI'll apply these preferences to your next property report. 🏠`
+            });
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              state: 'closed'
+            });
