@@ -342,6 +342,7 @@ def main() -> int:
             recipient=recipient,
             new_listings=top_listings,
             favorites=favorites_list,
+            preferences=preferences,
         )
         if not success:
             all_success = False

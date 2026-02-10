@@ -53,9 +53,11 @@ class EmailSender:
         recipient: str,
         new_listings: list[dict[str, Any]],
         favorites: list[dict[str, Any]] | None = None,
+        preferences: dict[str, Any] | None = None,
     ) -> bool:
         """Send an email with house listings in table format."""
         favorites = favorites or []
+        preferences = preferences or {}
         date_str = datetime.now().strftime("%B %d, %Y")
 
         if not new_listings and not favorites:
@@ -63,10 +65,79 @@ class EmailSender:
         else:
             subject = f"Austin House Update - {len(new_listings)} New Properties"
 
-        html_content = self._build_html(new_listings, favorites, date_str)
-        text_content = self._build_text(new_listings, favorites)
+        html_content = self._build_html(new_listings, favorites, date_str, preferences)
+        text_content = self._build_text(new_listings, favorites, preferences)
 
         return self._send_email(recipient, subject, html_content, text_content)
+
+    def _get_bob_reasoning(self, preferences: dict[str, Any], favorites_count: int) -> str:
+        """Generate Bob's chain of thought explaining why he picked these properties."""
+        reasons = []
+
+        preferred_neighborhoods = preferences.get("preferred_neighborhoods", [])
+        ideal_price = preferences.get("ideal_price")
+        ideal_sqft = preferences.get("ideal_sqft")
+        ideal_beds = preferences.get("ideal_beds")
+        hoa_pref = preferences.get("hoa_preference")
+        neighborhood_weights = preferences.get("neighborhood_weights", {})
+
+        # Check how much we've learned
+        has_learned = bool(preferred_neighborhoods or ideal_price or ideal_sqft or hoa_pref is not None)
+
+        if not has_learned and favorites_count == 0:
+            # No data yet - explain we're just starting
+            return (
+                "Me still getting to know you, Gru! Right now me showing houses sorted by price "
+                "(biggest banana first). Save some favorites and me learn what you like!"
+            )
+
+        if not has_learned and favorites_count > 0:
+            # Have favorites but haven't processed them yet
+            return (
+                "Me see you have favorites, Gru! Me studying them to learn your taste. "
+                "For now, me show houses sorted by price. Soon me get smarter!"
+            )
+
+        # We have learned preferences - explain our reasoning
+        if preferred_neighborhoods:
+            top_neighborhoods = preferred_neighborhoods[:3]
+            if len(top_neighborhoods) == 1:
+                reasons.append(f"Me notice you really like <strong>{top_neighborhoods[0]}</strong>")
+            else:
+                neighborhoods_str = ", ".join(top_neighborhoods[:-1]) + f" and {top_neighborhoods[-1]}"
+                reasons.append(f"Me notice you drawn to <strong>{neighborhoods_str}</strong>")
+
+        if ideal_price:
+            reasons.append(f"your sweet spot seem to be around <strong>${ideal_price:,.0f}</strong>")
+
+        if ideal_beds:
+            beds_rounded = round(ideal_beds)
+            reasons.append(f"you prefer <strong>{beds_rounded} bedroom</strong> homes")
+
+        if ideal_sqft:
+            reasons.append(f"you like around <strong>{ideal_sqft:,.0f} sqft</strong>")
+
+        if hoa_pref is not None:
+            if hoa_pref:
+                reasons.append("you don't mind HOA")
+            else:
+                reasons.append("you prefer <strong>no HOA</strong>")
+
+        if reasons:
+            # Build the explanation
+            reasoning = "Me been studying your favorites, Gru! " + reasons[0].capitalize()
+            if len(reasons) > 1:
+                reasoning += ", " + ", ".join(reasons[1:-1])
+                if len(reasons) > 2:
+                    reasoning += ","
+                reasoning += " and " + reasons[-1]
+            reasoning += ". Me boost houses that match these patterns!"
+            return reasoning
+
+        return (
+            "Me learning your preferences, Gru! Keep saving favorites and "
+            "me get better at finding perfect house for you!"
+        )
 
     def _get_bob_greeting(self, new_count: int, favorites_count: int) -> str:
         """Get Bob the Minion's personalized greeting."""
@@ -197,10 +268,13 @@ class EmailSender:
         new_listings: list[dict[str, Any]],
         favorites: list[dict[str, Any]],
         date_str: str,
+        preferences: dict[str, Any] | None = None,
     ) -> str:
         """Build HTML email content with tables."""
+        preferences = preferences or {}
 
         bob_greeting = self._get_bob_greeting(len(new_listings), len(favorites))
+        bob_reasoning = self._get_bob_reasoning(preferences, len(favorites))
 
         # Table headers - Column order: Property, Price, Bed/Bath, Stories, Neighborhood, HOA, To Sapphire, Down | Monthly, Action
         headers_with_action = f'''
@@ -270,6 +344,11 @@ class EmailSender:
                     <h2 style="color: {COLORS['primary']}; font-size: 18px; font-weight: 600; margin: 0;">
                         New Listings ({len(new_listings)})
                     </h2>
+                </div>
+                <div style="background-color: #FEF9C3; border-left: 4px solid #FCD34D; padding: 12px 16px; margin-bottom: 16px; border-radius: 0 8px 8px 0;">
+                    <div style="color: {COLORS['text']}; font-size: 13px; line-height: 1.5;">
+                        <strong style="color: #92400E;">Bob's Thinking:</strong> {bob_reasoning}
+                    </div>
                 </div>
                 <div style="overflow-x: auto;">
                     <table style="width: 100%; border-collapse: collapse; font-size: 13px; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
@@ -375,8 +454,10 @@ class EmailSender:
         self,
         new_listings: list[dict[str, Any]],
         favorites: list[dict[str, Any]],
+        preferences: dict[str, Any] | None = None,
     ) -> str:
         """Build plain text email content."""
+        preferences = preferences or {}
         lines = []
         lines.append("=" * 60)
         lines.append("AUSTIN PROPERTY REPORT")
@@ -398,6 +479,13 @@ class EmailSender:
                 lines.append("")
 
         if new_listings:
+            # Add Bob's reasoning (strip HTML tags for plain text)
+            import re
+            reasoning = self._get_bob_reasoning(preferences, len(favorites))
+            reasoning_plain = re.sub(r'<[^>]+>', '', reasoning)
+            lines.append("BOB'S THINKING:")
+            lines.append(reasoning_plain)
+            lines.append("")
             lines.append(f"NEW LISTINGS ({len(new_listings)})")
             lines.append("-" * 40)
             for listing in new_listings:
