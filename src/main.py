@@ -292,11 +292,12 @@ def main() -> int:
         ]
         print(f"After removing favorites/dismissed: {len(new_listings)} new listings")
 
-    # Calculate relevance scores and sort
+    # Calculate relevance scores (for potential future use)
     for listing in new_listings:
         listing["relevance_score"] = calculate_relevance_score(listing, config, preferences)
 
-    new_listings.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
+    # Sort by price descending (highest price first)
+    new_listings.sort(key=lambda x: x.get("price") or 0, reverse=True)
 
     # Take top N
     top_listings = new_listings[:MAX_LISTINGS]

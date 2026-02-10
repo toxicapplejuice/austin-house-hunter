@@ -69,11 +69,11 @@ class EmailSender:
         return self._send_email(recipient, subject, html_content, text_content)
 
     def _get_bob_greeting(self, new_count: int, favorites_count: int) -> str:
-        """Get Bob's personalized greeting."""
+        """Get Bob the Minion's personalized greeting."""
         greetings = [
-            "Hey there! Bob here, your dedicated Austin real estate scout.",
-            "Good day! It's Bob, back with your Austin property update.",
-            "Hello! Bob reporting in with the latest from the Austin market.",
+            "Bello, Gru! Bob here, your dedicated Austin real estate minion!",
+            "Poopaye, Gru! It's Bob, back with your Austin property update!",
+            "Bank yu, Gru! Bob reporting in with the latest from the Austin market!",
         ]
         greeting = greetings[datetime.now().day % len(greetings)]
 
@@ -81,36 +81,36 @@ class EmailSender:
             message = f"""
             {greeting}
 
-            I've been keeping an eye on the market for you, and I found <strong>{new_count} new properties</strong>
-            that match your criteria. I've also kept your <strong>{favorites_count} saved favorites</strong>
-            updated with the latest info.
+            Me been keeping eye on market for you, Gru! Me found <strong>{new_count} new properties</strong>
+            that match your criteria. Me also kept your <strong>{favorites_count} saved favorites</strong>
+            updated with latest info.
 
-            Take a look below and let me know if any catch your eye - just click the star to save them!
+            Take look below, Gru! Click star to save - BANANA! I mean... houses!
             """
         elif new_count > 0:
             message = f"""
             {greeting}
 
-            Great news! I found <strong>{new_count} new properties</strong> that match what you're looking for.
+            Great news, Gru! Me found <strong>{new_count} new properties</strong> that match what you looking for!
 
-            Browse through the listings below. If something catches your eye, click the star to add it to
-            your favorites - I'll keep tracking it for you.
+            Browse through listings below. If something catch your eye, click star to add to
+            favorites - me keep tracking for you, boss!
             """
         elif favorites_count > 0:
             message = f"""
             {greeting}
 
-            No new listings matched your criteria today, but I'm keeping an eye on your
-            <strong>{favorites_count} saved favorites</strong>. The market moves fast in Austin,
-            so I'll let you know as soon as something new pops up!
+            No new listings matched your criteria today, Gru. But me keeping eye on your
+            <strong>{favorites_count} saved favorites</strong>. Market moves fast in Austin,
+            so me let you know soon as something new pop up!
             """
         else:
             message = f"""
             {greeting}
 
-            It's a quiet day on the Austin market - no new listings matched your criteria.
-            Don't worry though, I'm constantly scanning for properties. I'll reach out as soon
-            as I find something promising!
+            It quiet day on Austin market, Gru - no new listings matched your criteria.
+            Don't worry though, me constantly scanning for properties. Me reach out soon
+            as me find something promising! BANANA!
             """
 
         return message.strip()
@@ -130,6 +130,10 @@ class EmailSender:
         baths = listing.get("baths") or "?"
         beds_baths = f"{beds}bd/{baths}ba"
 
+        # Stories
+        stories = listing.get("stories")
+        stories_str = f"{stories}" if stories else "?"
+
         # Neighborhood with direction
         neighborhood = listing.get("neighborhood") or "Austin"
         direction = listing.get("direction") or ""
@@ -148,12 +152,13 @@ class EmailSender:
         distance = listing.get("distance")
         distance_str = f"{distance:.1f} mi" if distance else "N/A"
 
-        # Financials
+        # Financials - combined into one column
         down = calculate_down_payment(price) if price else 0
-        down_str = f"${down:,.0f}" if down else "N/A"
-
         monthly = calculate_total_monthly(price) if price else 0
-        monthly_str = f"${monthly:,.0f}/mo" if monthly else "N/A"
+        if down and monthly:
+            financials_str = f"${down:,.0f} | ${monthly:,.0f}/mo"
+        else:
+            financials_str = "N/A"
 
         zillow_url = listing.get("zillow_url") or "#"
         zpid = listing.get("zpid") or ""
@@ -170,7 +175,7 @@ class EmailSender:
                    font-size: 12px; font-weight: 500;">★ Save</a>
             </td>'''
 
-        # Column order: Property, Price, Bed/Bath, Neighborhood, HOA, To Sapphire, Down, Est. Monthly, Action
+        # Column order: Property, Price, Bed/Bath, Stories, Neighborhood, HOA, To Sapphire, Down | Monthly, Action
         return f'''
         <tr>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']};">
@@ -178,11 +183,11 @@ class EmailSender:
             </td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; font-weight: 600; color: {COLORS['text']};">{price_str}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{beds_baths}</td>
+            <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']}; text-align: center;">{stories_str}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']}; font-size: 13px;">{neighborhood_display}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{hoa_display}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{distance_str}</td>
-            <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{down_str}</td>
-            <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{monthly_str}</td>
+            <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']}; font-size: 12px;">{financials_str}</td>
             {favorite_cell}
         </tr>
         '''
@@ -197,17 +202,17 @@ class EmailSender:
 
         bob_greeting = self._get_bob_greeting(len(new_listings), len(favorites))
 
-        # Table headers - Column order: Property, Price, Bed/Bath, Neighborhood, HOA, To Sapphire, Down, Est. Monthly, Action
+        # Table headers - Column order: Property, Price, Bed/Bath, Stories, Neighborhood, HOA, To Sapphire, Down | Monthly, Action
         headers_with_action = f'''
             <tr style="background-color: #F1F5F9;">
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Property</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Price</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Bed/Bath</th>
+                <th style="padding: 12px 8px; text-align: center; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Stories</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Neighborhood</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">HOA</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">To Sapphire</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Down (20%)</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Est. Monthly</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Down | Monthly</th>
                 <th style="padding: 12px 8px; text-align: center; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Action</th>
             </tr>
         '''
@@ -217,11 +222,11 @@ class EmailSender:
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Property</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Price</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Bed/Bath</th>
+                <th style="padding: 12px 8px; text-align: center; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Stories</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Neighborhood</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">HOA</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">To Sapphire</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Down (20%)</th>
-                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Est. Monthly</th>
+                <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Down | Monthly</th>
             </tr>
         '''
 
@@ -311,13 +316,14 @@ class EmailSender:
                 <div style="background-color: white; padding: 24px 32px; border-left: 1px solid {COLORS['border']};
                             border-right: 1px solid {COLORS['border']};">
                     <div style="display: flex; align-items: flex-start;">
-                        <div style="width: 48px; height: 48px; background-color: {COLORS['accent']}; border-radius: 50%;
-                                    display: flex; align-items: center; justify-content: center; margin-right: 16px; flex-shrink: 0;">
-                            <span style="color: white; font-size: 20px; font-weight: 600;">B</span>
+                        <div style="width: 48px; height: 48px; background-color: #FCD34D; border-radius: 50%;
+                                    display: flex; align-items: center; justify-content: center; margin-right: 16px; flex-shrink: 0;
+                                    border: 3px solid #374151; position: relative;">
+                            <span style="font-size: 24px;">🍌</span>
                         </div>
                         <div>
-                            <div style="font-weight: 600; color: {COLORS['primary']}; margin-bottom: 4px;">Bob</div>
-                            <div style="font-size: 12px; color: {COLORS['muted']}; margin-bottom: 12px;">Your Real Estate Scout</div>
+                            <div style="font-weight: 600; color: {COLORS['primary']}; margin-bottom: 4px;">Bob the Minion</div>
+                            <div style="font-size: 12px; color: {COLORS['muted']}; margin-bottom: 12px;">Your Real Estate Minion</div>
                             <div style="color: {COLORS['text']}; line-height: 1.6; font-size: 14px;">
                                 {bob_greeting}
                             </div>
@@ -348,11 +354,11 @@ class EmailSender:
                 <div style="background-color: {COLORS['primary']}; padding: 24px 32px; border-radius: 0 0 12px 12px;
                             text-align: center;">
                     <div style="color: white; font-size: 14px; margin-bottom: 12px;">
-                        Want to see different properties? Tell Bob what you're looking for.
+                        Want see different properties, Gru? Tell Bob what you looking for!
                     </div>
-                    <a href="{feedback_url}" style="display: inline-block; background-color: {COLORS['accent']};
-                       color: white; padding: 10px 24px; text-decoration: none; border-radius: 6px;
-                       font-size: 14px; font-weight: 500;">💬 Give Feedback</a>
+                    <a href="{feedback_url}" style="display: inline-block; background-color: #FCD34D;
+                       color: #1F2937; padding: 10px 24px; text-decoration: none; border-radius: 6px;
+                       font-size: 14px; font-weight: 600;">🍌 Give Feedback</a>
                 </div>
 
                 <!-- Footer -->
@@ -376,7 +382,7 @@ class EmailSender:
         lines.append("AUSTIN PROPERTY REPORT")
         lines.append("=" * 60)
         lines.append("")
-        lines.append("Hey there! Bob here, your real estate scout.")
+        lines.append("Bello, Gru! Bob the Minion here, your real estate minion!")
         lines.append("")
 
         if favorites:
