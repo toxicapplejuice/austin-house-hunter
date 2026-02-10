@@ -74,27 +74,22 @@ def main() -> int:
         print("RECIPIENT_EMAIL environment variable is required")
         return 1
 
+    # Build search prompt from config
+    search_prompt = zillow.build_search_prompt(config)
+    print(f"Search prompt: {search_prompt}")
+
     # Search for listings
     print("Fetching listings from Zillow...")
     try:
-        response = zillow.search_listings(
-            location=config.get("location", "Austin, TX"),
-            min_price=config.get("min_price"),
-            max_price=config.get("max_price"),
-            min_beds=config.get("min_beds"),
-            max_beds=config.get("max_beds"),
-            min_baths=config.get("min_baths"),
-            max_baths=config.get("max_baths"),
-            min_sqft=config.get("min_sqft"),
-            max_sqft=config.get("max_sqft"),
-            days_on_zillow=config.get("max_days_on_market"),
-        )
+        response = zillow.search_by_prompt(search_prompt)
     except Exception as e:
         print(f"Error fetching listings: {e}")
         return 1
 
-    # Parse listings
-    raw_listings = response.get("results", [])
+    # Parse listings - handle different response structures
+    raw_listings = response.get("results", []) or response.get("props", []) or []
+    if not raw_listings and isinstance(response, list):
+        raw_listings = response
     print(f"Found {len(raw_listings)} raw listings")
 
     listings = [parse_listing(r) for r in raw_listings]

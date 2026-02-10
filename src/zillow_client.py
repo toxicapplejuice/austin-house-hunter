@@ -1,4 +1,4 @@
-"""Zillow API client using RapidAPI."""
+"""Zillow API client using RapidAPI Private-Zillow."""
 
 import os
 from typing import Any
@@ -7,9 +7,9 @@ import requests
 
 
 class ZillowClient:
-    """Client for Real-Time Zillow Data API on RapidAPI."""
+    """Client for Private-Zillow API on RapidAPI."""
 
-    BASE_URL = "https://real-time-zillow-data.p.rapidapi.com"
+    BASE_URL = "https://private-zillow.p.rapidapi.com"
 
     def __init__(self, api_key: str | None = None):
         self.api_key = api_key or os.environ.get("RAPIDAPI_KEY")
@@ -18,76 +18,34 @@ class ZillowClient:
 
         self.headers = {
             "x-rapidapi-key": self.api_key,
-            "x-rapidapi-host": "real-time-zillow-data.p.rapidapi.com",
+            "x-rapidapi-host": "private-zillow.p.rapidapi.com",
         }
 
-    def search_listings(
+    def search_by_prompt(
         self,
-        location: str,
-        status: str = "forSale",
-        min_price: int | None = None,
-        max_price: int | None = None,
-        min_beds: int | None = None,
-        max_beds: int | None = None,
-        min_baths: int | None = None,
-        max_baths: int | None = None,
-        min_sqft: int | None = None,
-        max_sqft: int | None = None,
-        home_type: str | None = None,
-        days_on_zillow: int | None = None,
+        prompt: str,
         page: int = 1,
+        sort_order: str = "Newest",
     ) -> dict[str, Any]:
         """
-        Search for property listings.
+        Search for listings using natural language prompt.
 
         Args:
-            location: City, address, or ZIP code (e.g., "Austin, TX")
-            status: "forSale", "forRent", or "sold"
-            min_price: Minimum price
-            max_price: Maximum price
-            min_beds: Minimum bedrooms
-            max_beds: Maximum bedrooms
-            min_baths: Minimum bathrooms
-            max_baths: Maximum bathrooms
-            min_sqft: Minimum square footage
-            max_sqft: Maximum square footage
-            home_type: Property type filter
-            days_on_zillow: Max days on market
+            prompt: Natural language search like "3 bedroom homes for sale in Austin TX under $500k"
             page: Page number for pagination
+            sort_order: Sort order (Newest, Price_High_Low, Price_Low_High, etc.)
 
         Returns:
             API response with listings
         """
         params = {
-            "location": location,
-            "status": status,
+            "ai_search_prompt": prompt,
             "page": page,
+            "sortOrder": sort_order,
         }
 
-        # Add optional filters
-        if min_price:
-            params["minPrice"] = min_price
-        if max_price:
-            params["maxPrice"] = max_price
-        if min_beds:
-            params["bedsMin"] = min_beds
-        if max_beds:
-            params["bedsMax"] = max_beds
-        if min_baths:
-            params["bathsMin"] = min_baths
-        if max_baths:
-            params["bathsMax"] = max_baths
-        if min_sqft:
-            params["sqftMin"] = min_sqft
-        if max_sqft:
-            params["sqftMax"] = max_sqft
-        if home_type:
-            params["home_type"] = home_type
-        if days_on_zillow:
-            params["daysOn"] = days_on_zillow
-
         response = requests.get(
-            f"{self.BASE_URL}/search",
+            f"{self.BASE_URL}/search/byaiprompt",
             headers=self.headers,
             params=params,
             timeout=30,
@@ -95,42 +53,92 @@ class ZillowClient:
         response.raise_for_status()
         return response.json()
 
-    def get_property_details(self, zpid: str) -> dict[str, Any]:
+    def build_search_prompt(self, config: dict[str, Any]) -> str:
         """
-        Get detailed information about a specific property.
+        Build a natural language search prompt from config.
 
         Args:
-            zpid: Zillow property ID
+            config: Configuration dictionary with search criteria
 
         Returns:
-            Property details
+            Natural language prompt string
         """
-        response = requests.get(
-            f"{self.BASE_URL}/property",
-            headers=self.headers,
-            params={"zpid": zpid},
-            timeout=30,
-        )
-        response.raise_for_status()
-        return response.json()
+        parts = []
+
+        # Location
+        location = config.get("location", "Austin, TX")
+
+        # Bedrooms
+        min_beds = config.get("min_beds")
+        max_beds = config.get("max_beds")
+        if min_beds and max_beds:
+            parts.append(f"{min_beds}-{max_beds} bedroom")
+        elif min_beds:
+            parts.append(f"{min_beds}+ bedroom")
+
+        # Property type
+        property_types = config.get("property_types", [])
+        if property_types:
+            type_map = {
+                "single_family": "single family homes",
+                "condo": "condos",
+                "townhouse": "townhouses",
+                "multi_family": "multi-family homes",
+            }
+            types_str = " or ".join(type_map.get(t, t) for t in property_types)
+            parts.append(types_str)
+        else:
+            parts.append("homes")
+
+        parts.append("for sale in")
+        parts.append(location)
+
+        # Bathrooms
+        min_baths = config.get("min_baths")
+        if min_baths:
+            parts.append(f"with {min_baths}+ bathrooms")
+
+        # Price
+        min_price = config.get("min_price")
+        max_price = config.get("max_price")
+        if min_price and max_price:
+            parts.append(f"${min_price:,} to ${max_price:,}")
+        elif max_price:
+            parts.append(f"under ${max_price:,}")
+        elif min_price:
+            parts.append(f"over ${min_price:,}")
+
+        # Square footage
+        min_sqft = config.get("min_sqft")
+        max_sqft = config.get("max_sqft")
+        if min_sqft:
+            parts.append(f"{min_sqft:,}+ sqft")
+
+        # Days on market
+        max_days = config.get("max_days_on_market")
+        if max_days:
+            parts.append(f"listed in last {max_days} days")
+
+        return " ".join(parts)
 
 
 def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
     """Parse a raw listing into a standardized format."""
+    # Handle different response formats from the API
     return {
         "zpid": raw.get("zpid"),
-        "address": raw.get("address"),
+        "address": raw.get("streetAddress") or raw.get("address"),
         "city": raw.get("city"),
         "state": raw.get("state"),
         "zipcode": raw.get("zipcode"),
-        "price": raw.get("price"),
-        "beds": raw.get("bedrooms"),
-        "baths": raw.get("bathrooms"),
-        "sqft": raw.get("livingArea"),
-        "property_type": raw.get("homeType"),
-        "days_on_market": raw.get("daysOnZillow"),
-        "photo_url": raw.get("imgSrc"),
-        "zillow_url": raw.get("detailUrl"),
-        "latitude": raw.get("latitude"),
-        "longitude": raw.get("longitude"),
+        "price": raw.get("price") or raw.get("unformattedPrice"),
+        "beds": raw.get("bedrooms") or raw.get("beds"),
+        "baths": raw.get("bathrooms") or raw.get("baths"),
+        "sqft": raw.get("livingArea") or raw.get("area"),
+        "property_type": raw.get("homeType") or raw.get("propertyType"),
+        "days_on_market": raw.get("daysOnZillow") or raw.get("timeOnZillow"),
+        "photo_url": raw.get("imgSrc") or raw.get("image"),
+        "zillow_url": raw.get("detailUrl") or raw.get("url"),
+        "latitude": raw.get("latitude") or raw.get("lat"),
+        "longitude": raw.get("longitude") or raw.get("long"),
     }
