@@ -124,21 +124,45 @@ class ZillowClient:
 
 def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
     """Parse a raw listing into a standardized format."""
-    # Handle different response formats from the API
+    # Handle nested "property" structure from Private-Zillow API
+    prop = raw.get("property", raw)
+
+    # Get nested address
+    address_obj = prop.get("address", {})
+
+    # Get nested location
+    location_obj = prop.get("location", {})
+
+    # Get price - could be in different places
+    price = prop.get("price")
+    if isinstance(price, dict):
+        price = price.get("value") or price.get("amount")
+
+    # Get media/photos
+    media = prop.get("media", {})
+    photo_links = media.get("propertyPhotoLinks", {})
+    photo_url = photo_links.get("mediumSizeLink") or photo_links.get("highResolutionLink")
+
+    # Build Zillow URL from zpid if not provided
+    zpid = prop.get("zpid")
+    zillow_url = prop.get("detailUrl") or prop.get("url")
+    if not zillow_url and zpid:
+        zillow_url = f"https://www.zillow.com/homedetails/{zpid}_zpid/"
+
     return {
-        "zpid": raw.get("zpid"),
-        "address": raw.get("streetAddress") or raw.get("address"),
-        "city": raw.get("city"),
-        "state": raw.get("state"),
-        "zipcode": raw.get("zipcode"),
-        "price": raw.get("price") or raw.get("unformattedPrice"),
-        "beds": raw.get("bedrooms") or raw.get("beds"),
-        "baths": raw.get("bathrooms") or raw.get("baths"),
-        "sqft": raw.get("livingArea") or raw.get("area"),
-        "property_type": raw.get("homeType") or raw.get("propertyType"),
-        "days_on_market": raw.get("daysOnZillow") or raw.get("timeOnZillow"),
-        "photo_url": raw.get("imgSrc") or raw.get("image"),
-        "zillow_url": raw.get("detailUrl") or raw.get("url"),
-        "latitude": raw.get("latitude") or raw.get("lat"),
-        "longitude": raw.get("longitude") or raw.get("long"),
+        "zpid": str(zpid) if zpid else None,
+        "address": address_obj.get("streetAddress") or prop.get("streetAddress") or prop.get("address"),
+        "city": address_obj.get("city") or prop.get("city"),
+        "state": address_obj.get("state") or prop.get("state"),
+        "zipcode": address_obj.get("zipcode") or prop.get("zipcode"),
+        "price": price,
+        "beds": prop.get("bedrooms") or prop.get("beds"),
+        "baths": prop.get("bathrooms") or prop.get("baths"),
+        "sqft": prop.get("livingArea") or prop.get("area") or prop.get("sqft"),
+        "property_type": prop.get("homeType") or prop.get("propertyType") or prop.get("homeStatus"),
+        "days_on_market": prop.get("daysOnZillow") or prop.get("timeOnZillow"),
+        "photo_url": photo_url or prop.get("imgSrc") or prop.get("image"),
+        "zillow_url": zillow_url,
+        "latitude": location_obj.get("latitude") or prop.get("latitude") or prop.get("lat"),
+        "longitude": location_obj.get("longitude") or prop.get("longitude") or prop.get("long"),
     }

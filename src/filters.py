@@ -54,10 +54,10 @@ class ListingFilter:
         # Property type filter
         property_types = self.config.get("property_types", [])
         if property_types:
-            listing_type = listing.get("property_type", "").lower()
+            listing_type = (listing.get("property_type") or "").lower()
             # Normalize property type names
             type_mapping = {
-                "single_family": ["single_family", "singlefamily", "house"],
+                "single_family": ["single_family", "singlefamily", "house", "single", "for_sale"],
                 "condo": ["condo", "condominium"],
                 "townhouse": ["townhouse", "townhome"],
                 "multi_family": ["multi_family", "multifamily", "duplex", "triplex"],
@@ -68,7 +68,8 @@ class ListingFilter:
                 if any(t in listing_type for t in acceptable):
                     matched = True
                     break
-            if not matched:
+            # If no property type info, let it through (don't filter out unknowns)
+            if not matched and listing_type:
                 return False
 
         # Zip code filter
