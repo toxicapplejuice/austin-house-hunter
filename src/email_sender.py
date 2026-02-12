@@ -365,8 +365,8 @@ class EmailSender:
         # Assumptions section
         assumptions = get_assumptions_text().replace("\n", "<br>")
 
-        # Feedback link
-        feedback_url = f"https://github.com/{GITHUB_REPO}/issues/new?title=FEEDBACK&body=Tell%20Bob%20what%20you%27d%20like%20to%20see%20more%20of%20(neighborhoods%2C%20price%20range%2C%20features)%3A%0A%0A&labels=feedback"
+        # Feedback link (no labels param - workflow detects by title prefix)
+        feedback_url = f"https://github.com/{GITHUB_REPO}/issues/new?title=FEEDBACK:%20&body=Tell%20Bob%20what%20you%27d%20like%20to%20see%20more%20of%20(neighborhoods%2C%20price%20range%2C%20features)%3A%0A%0A"
 
         return f'''
         <!DOCTYPE html>
@@ -506,7 +506,7 @@ class EmailSender:
         lines.append(get_assumptions_text())
         lines.append("")
         lines.append("Want to see different properties? Give feedback:")
-        lines.append(f"https://github.com/{GITHUB_REPO}/issues/new?labels=feedback")
+        lines.append(f"https://github.com/{GITHUB_REPO}/issues/new?title=FEEDBACK:%20")
 
         return "\n".join(lines)
 
