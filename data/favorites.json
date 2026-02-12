@@ -1,1 +1,15 @@
-{}
+{
+  "9409-caracas-dr": {
+    "zpid": "9409-caracas-dr",
+    "address": "9409 Caracas Dr, Austin, TX",
+    "name": "9409 Caracas Dr",
+    "price": null,
+    "beds": null,
+    "baths": null,
+    "sqft": null,
+    "latitude": 30.2285,
+    "longitude": -97.7075,
+    "zillow_url": "https://www.zillow.com/homes/9409-Caracas-Dr-Austin,-TX_rb/",
+    "notes": "Reasonably priced for the square footage"
+  }
+}

@@ -218,9 +218,19 @@ class EmailSender:
         has_hoa = listing.get("has_hoa")
         hoa_display = "Yes" if has_hoa else "No"
 
-        # Distance to Sapphire
+        # Distance to Sapphire with Google Maps directions link
         distance = listing.get("distance")
-        distance_str = f"{distance:.1f} mi" if distance else "N/A"
+        lat = listing.get("latitude")
+        lon = listing.get("longitude")
+        # Sapphire coordinates (downtown Austin)
+        sapphire_lat, sapphire_lon = 30.2672, -97.7431
+        if distance and lat and lon:
+            maps_url = f"https://www.google.com/maps/dir/?api=1&origin={lat},{lon}&destination={sapphire_lat},{sapphire_lon}"
+            distance_str = f'<a href="{maps_url}" style="color: {COLORS["accent"]}; text-decoration: none;">{distance:.1f} mi</a>'
+        elif distance:
+            distance_str = f"{distance:.1f} mi"
+        else:
+            distance_str = "N/A"
 
         # Financials - combined into one column
         down = calculate_down_payment(price) if price else 0
@@ -233,8 +243,8 @@ class EmailSender:
         zillow_url = listing.get("zillow_url") or "#"
         zpid = listing.get("zpid") or ""
 
-        # Favorite link
-        favorite_url = f"https://github.com/{GITHUB_REPO}/issues/new?title=FAVORITE:%20{zpid}&body=Favoriting%20property%20{zpid}&labels=favorite"
+        # Favorite link (no labels param - workflow detects by title prefix)
+        favorite_url = f"https://github.com/{GITHUB_REPO}/issues/new?title=FAVORITE:%20{zpid}&body=Favoriting%20property%20{zpid}"
 
         favorite_cell = ""
         if show_favorite_link:
