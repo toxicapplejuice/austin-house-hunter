@@ -86,8 +86,8 @@ class EmailSender:
         if not has_learned and favorites_count == 0:
             # No data yet - explain we're just starting
             return (
-                "I'm still learning your preferences. Currently showing listings sorted by price (highest first). "
-                "Save some favorites and I'll start identifying patterns in what you like."
+                "I'm still learning your preferences! Currently showing listings sorted by price (highest first). "
+                "Save some favorites and I'll start identifying patterns in what you like. Bello!"
             )
 
         if not has_learned and favorites_count > 0:
@@ -139,11 +139,11 @@ class EmailSender:
         )
 
     def _get_bob_greeting(self, new_count: int, favorites_count: int) -> str:
-        """Get Bob's personalized greeting."""
+        """Get Bob's personalized greeting (with 15% minion flavor)."""
         greetings = [
-            "Hey there! Bob here with your Austin property update.",
-            "Good to see you! Here's what I found in the Austin market.",
-            "Hello! Bob checking in with your latest property report.",
+            "Bello! Bob here with your Austin property update.",
+            "Hey there! Bob checking in with your latest property report.",
+            "Hello! Here's what I found in the Austin market.",
         ]
         greeting = greetings[datetime.now().day % len(greetings)]
 
@@ -153,9 +153,9 @@ class EmailSender:
 
             I've been monitoring the market and found <strong>{new_count} new properties</strong>
             that match your criteria. I've also kept your <strong>{favorites_count} saved favorites</strong>
-            updated with the latest information.
+            updated with the latest info.
 
-            Take a look below—click the star on any listing to save it for tracking.
+            Take a look below—click the star on any listing to save it. Bee-do!
             """
         elif new_count > 0:
             message = f"""
@@ -171,16 +171,16 @@ class EmailSender:
             {greeting}
 
             No new listings matched your criteria today, but I'm keeping an eye on your
-            <strong>{favorites_count} saved favorites</strong>. The Austin market moves quickly,
-            so I'll let you know as soon as something new comes up.
+            <strong>{favorites_count} saved favorites</strong>. The Austin market moves quickly—I'll
+            let you know as soon as something pops up!
             """
         else:
             message = f"""
             {greeting}
 
             It's a quiet day on the Austin market—no new listings matched your criteria.
-            I'm continuously scanning for properties and will reach out as soon as
-            I find something promising.
+            Don't worry, I'm continuously scanning. I'll reach out as soon as I find
+            something promising. Banana! (Sorry, got excited.)
             """
 
         return message.strip()
@@ -406,11 +406,11 @@ class EmailSender:
                     <div style="display: flex; align-items: flex-start;">
                         <div style="width: 48px; height: 48px; background-color: #FCD34D; border-radius: 50%;
                                     display: flex; align-items: center; justify-content: center; margin-right: 16px; flex-shrink: 0;">
-                            <span style="font-size: 20px;">🏠</span>
+                            <span style="font-size: 20px;">🍌</span>
                         </div>
                         <div>
                             <div style="font-weight: 600; color: {COLORS['primary']}; margin-bottom: 4px;">Bob</div>
-                            <div style="font-size: 12px; color: {COLORS['muted']}; margin-bottom: 12px;">Your Real Estate Assistant</div>
+                            <div style="font-size: 12px; color: {COLORS['muted']}; margin-bottom: 12px;">Your Real Estate Minion</div>
                             <div style="color: {COLORS['text']}; line-height: 1.6; font-size: 14px;">
                                 {bob_greeting}
                             </div>
@@ -471,7 +471,7 @@ class EmailSender:
         lines.append("AUSTIN PROPERTY REPORT")
         lines.append("=" * 60)
         lines.append("")
-        lines.append("Hey there! Bob here, your real estate assistant.")
+        lines.append("Bello! Bob here, your real estate minion.")
         lines.append("")
 
         if favorites:
