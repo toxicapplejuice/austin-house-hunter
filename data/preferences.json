@@ -1,13 +1,27 @@
 {
-  "preferred_neighborhoods": [],
-  "neighborhood_weights": {},
-  "ideal_price": null,
-  "ideal_sqft": null,
-  "ideal_beds": null,
-  "ideal_baths": null,
-  "hoa_preference": null,
-  "price_history": [],
-  "sqft_history": [],
-  "beds_history": [],
-  "baths_history": []
+  "preferred_neighborhoods": [
+    "South Austin",
+    "Slaughter Lane"
+  ],
+  "neighborhood_weights": {
+    "South Austin": 1.5,
+    "Slaughter Lane": 1.5
+  },
+  "ideal_price": 650000.0,
+  "ideal_sqft": 2100.0,
+  "ideal_beds": 4.0,
+  "ideal_baths": 2.5,
+  "hoa_preference": false,
+  "price_history": [
+    650000
+  ],
+  "sqft_history": [
+    2100
+  ],
+  "beds_history": [
+    4
+  ],
+  "baths_history": [
+    2.5
+  ]
 }
