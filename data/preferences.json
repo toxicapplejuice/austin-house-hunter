@@ -1,11 +1,13 @@
 {
   "preferred_neighborhoods": [
     "South Austin",
-    "Slaughter Lane"
+    "Slaughter Lane",
+    "Downtown"
   ],
   "neighborhood_weights": {
     "South Austin": 1.5,
-    "Slaughter Lane": 1.5
+    "Slaughter Lane": 1.5,
+    "Downtown": 1.5
   },
   "ideal_price": 650000.0,
   "ideal_sqft": 2100.0,
