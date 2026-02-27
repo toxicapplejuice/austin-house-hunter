@@ -23,7 +23,7 @@ MAX_LISTINGS = 5  # Top N listings to show
 DATA_DIR = Path(__file__).parent.parent / "data"
 
 # TESTING MODE: Set to True to disable dismissal (keep showing all houses)
-TESTING_MODE = True
+TESTING_MODE = False
 
 
 def load_config() -> dict:
