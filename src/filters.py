@@ -86,6 +86,14 @@ class ListingFilter:
             if days and days > max_days:
                 return False
 
+        # Exclude features filter (e.g., pool)
+        exclude_features = self.config.get("exclude_features", [])
+        if exclude_features:
+            description = (listing.get("description") or "").lower()
+            for feature in exclude_features:
+                if feature.lower() in description:
+                    return False
+
         return True
 
     def filter_listings(self, listings: list[dict[str, Any]]) -> list[dict[str, Any]]:

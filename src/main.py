@@ -296,12 +296,45 @@ def main() -> int:
     for listing in new_listings:
         listing["relevance_score"] = calculate_relevance_score(listing, config, preferences)
 
-    # Sort by price descending (highest price first)
-    new_listings.sort(key=lambda x: x.get("price") or 0, reverse=True)
+    # Split into under/over $1M buckets
+    under_1m = [l for l in new_listings if (l.get("price") or 0) < 1_000_000]
+    over_1m = [l for l in new_listings if (l.get("price") or 0) >= 1_000_000]
 
-    # Take top N
-    top_listings = new_listings[:MAX_LISTINGS]
-    print(f"Top {len(top_listings)} listings selected")
+    # Sort each bucket by relevance score descending
+    under_1m.sort(key=lambda x: x.get("relevance_score") or 0, reverse=True)
+    over_1m.sort(key=lambda x: x.get("relevance_score") or 0, reverse=True)
+
+    # Pick 4 under $1M + 1 over $1M, backfill if a bucket is short
+    top_under = under_1m[:4]
+    top_over = over_1m[:1]
+    top_listings = top_under + top_over
+    remaining = MAX_LISTINGS - len(top_listings)
+    if remaining > 0:
+        extras = [l for l in under_1m[4:] + over_1m[1:] if l not in top_listings]
+        top_listings.extend(extras[:remaining])
+
+    # Guarantee at least 1 listing from a preferred neighborhood
+    preferred = preferences.get("preferred_neighborhoods", [])
+    if preferred:
+        has_preferred = any(
+            l.get("neighborhood") in preferred for l in top_listings
+        )
+        if not has_preferred:
+            # Find best listing from a preferred neighborhood across all candidates
+            preferred_candidates = [
+                l for l in new_listings
+                if l.get("neighborhood") in preferred and l not in top_listings
+            ]
+            if preferred_candidates:
+                preferred_candidates.sort(key=lambda x: x.get("relevance_score") or 0, reverse=True)
+                # Swap out the lowest-scored listing
+                top_listings.sort(key=lambda x: x.get("relevance_score") or 0)
+                top_listings[0] = preferred_candidates[0]
+                print(f"Swapped in preferred neighborhood listing: {preferred_candidates[0].get('neighborhood')}")
+
+    # Sort final list by price descending for display
+    top_listings.sort(key=lambda x: x.get("price") or 0, reverse=True)
+    print(f"Top {len(top_listings)} listings selected ({len(top_under)} under $1M, {len(top_over)} over $1M)")
 
     # Log top listings with scores
     for i, l in enumerate(top_listings):

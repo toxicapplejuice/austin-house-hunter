@@ -5,7 +5,7 @@ location: "Austin, TX"
 
 # Price range
 min_price: 650000
-max_price: 1700000
+max_price: 1200000
 
 # Bedrooms
 min_beds: 3
@@ -22,6 +22,10 @@ max_sqft: null
 # Property types
 property_types:
   - single_family
+
+# Features to exclude from search results
+exclude_features:
+  - pool
 
 # Maximum days on market (null for no limit, or set to 14 for newer listings)
 max_days_on_market: null

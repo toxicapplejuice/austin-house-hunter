@@ -221,16 +221,31 @@ def parse_feedback(feedback_text: str) -> dict[str, Any]:
     feedback_text = feedback_text.lower()
     updates = {}
 
-    # Neighborhood preferences
-    neighborhood_keywords = [
-        "mueller", "hyde park", "east austin", "south congress", "zilker",
-        "barton hills", "travis heights", "clarksville", "tarrytown",
-        "rosedale", "crestview", "allandale", "downtown", "domain",
-        "pflugerville", "round rock", "cedar park", "buda", "kyle"
-    ]
+    # Neighborhood preferences (canonical name -> variants to match)
+    neighborhood_variants = {
+        "tarrytown": ["tarrytown", "tarry town"],
+        "mueller": ["mueller"],
+        "hyde park": ["hyde park"],
+        "east austin": ["east austin"],
+        "south congress": ["south congress"],
+        "zilker": ["zilker"],
+        "barton hills": ["barton hills"],
+        "travis heights": ["travis heights"],
+        "clarksville": ["clarksville"],
+        "rosedale": ["rosedale"],
+        "crestview": ["crestview"],
+        "allandale": ["allandale"],
+        "downtown": ["downtown"],
+        "domain": ["domain"],
+        "pflugerville": ["pflugerville"],
+        "round rock": ["round rock"],
+        "cedar park": ["cedar park"],
+        "buda": ["buda"],
+        "kyle": ["kyle"],
+    }
 
-    for neighborhood in neighborhood_keywords:
-        if neighborhood in feedback_text:
+    for neighborhood, variants in neighborhood_variants.items():
+        if any(v in feedback_text for v in variants):
             if "more" in feedback_text or "like" in feedback_text or "prefer" in feedback_text:
                 if "add_neighborhoods" not in updates:
                     updates["add_neighborhoods"] = []
@@ -242,7 +257,7 @@ def parse_feedback(feedback_text: str) -> dict[str, Any]:
 
     # Price updates
     import re
-    price_match = re.search(r'(?:max|maximum|under|below|up to)\s*(?:price)?\s*\$?([\d,.]+)\s*([mk])?', feedback_text)
+    price_match = re.search(r'(?:max|maximum|under|below|up to)\s*(?:price)?\s*\$([\d,.]+)\s*([mk])?', feedback_text)
     if price_match:
         price_str = price_match.group(1).replace(",", "")
         multiplier = 1
@@ -253,7 +268,7 @@ def parse_feedback(feedback_text: str) -> dict[str, Any]:
                 multiplier = 1_000
         updates["max_price"] = int(float(price_str) * multiplier)
 
-    min_price_match = re.search(r'(?:min|minimum|above|over|at least)\s*(?:price)?\s*\$?([\d,.]+)\s*([mk])?', feedback_text)
+    min_price_match = re.search(r'(?:min|minimum|above|over|at least)\s*(?:price)?\s*\$([\d,.]+)\s*([mk])?', feedback_text)
     if min_price_match:
         price_str = min_price_match.group(1).replace(",", "")
         multiplier = 1

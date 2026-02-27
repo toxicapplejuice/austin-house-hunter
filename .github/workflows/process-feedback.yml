@@ -59,17 +59,35 @@ jobs:
                   "hoa_preference": None
               }
 
-          # Neighborhood keywords
-          neighborhoods = [
-              "mueller", "hyde park", "east austin", "south congress", "zilker",
-              "barton hills", "travis heights", "clarksville", "tarrytown",
-              "rosedale", "crestview", "allandale", "downtown", "domain",
-              "pflugerville", "round rock", "cedar park", "buda", "kyle",
-              "north loop", "cherrywood", "windsor park", "brentwood"
-          ]
+          # Neighborhood keywords (canonical name -> variants to match)
+          neighborhood_variants = {
+              "tarrytown": ["tarrytown", "tarry town"],
+              "mueller": ["mueller"],
+              "hyde park": ["hyde park"],
+              "east austin": ["east austin"],
+              "south congress": ["south congress"],
+              "zilker": ["zilker"],
+              "barton hills": ["barton hills"],
+              "travis heights": ["travis heights"],
+              "clarksville": ["clarksville"],
+              "rosedale": ["rosedale"],
+              "crestview": ["crestview"],
+              "allandale": ["allandale"],
+              "downtown": ["downtown"],
+              "domain": ["domain"],
+              "pflugerville": ["pflugerville"],
+              "round rock": ["round rock"],
+              "cedar park": ["cedar park"],
+              "buda": ["buda"],
+              "kyle": ["kyle"],
+              "north loop": ["north loop"],
+              "cherrywood": ["cherrywood"],
+              "windsor park": ["windsor park"],
+              "brentwood": ["brentwood"],
+          }
 
-          for neighborhood in neighborhoods:
-              if neighborhood in feedback:
+          for neighborhood, variants in neighborhood_variants.items():
+              if any(v in feedback for v in variants):
                   if any(word in feedback for word in ["more", "like", "prefer", "love", "want"]):
                       n_title = neighborhood.title()
                       if "preferred_neighborhoods" not in prefs:
@@ -102,7 +120,7 @@ jobs:
           config_file = Path("config.yaml")
           config_changes = []
 
-          price_match = re.search(r'(?:max|maximum|under|below)\s*(?:price)?\s*\$?([\d,.]+)\s*([mk])?', feedback)
+          price_match = re.search(r'(?:max|maximum|under|below)\s*(?:price)?\s*\$([\d,.]+)\s*([mk])?', feedback)
           if price_match:
               price_str = price_match.group(1).replace(",", "")
               multiplier = 1
@@ -115,7 +133,7 @@ jobs:
               config_changes.append(f"max_price: {new_max}")
               changes.append(f"Update max price to ${new_max:,}")
 
-          min_price_match = re.search(r'(?:min|minimum|above|over|at least)\s*(?:price)?\s*\$?([\d,.]+)\s*([mk])?', feedback)
+          min_price_match = re.search(r'(?:min|minimum|above|over|at least)\s*(?:price)?\s*\$([\d,.]+)\s*([mk])?', feedback)
           if min_price_match:
               price_str = min_price_match.group(1).replace(",", "")
               multiplier = 1

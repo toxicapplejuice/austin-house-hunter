@@ -84,7 +84,7 @@ class ZillowClient:
         max_price = config.get("max_price")
 
         # Build a simpler, more direct prompt
-        # Format: "houses for sale in Austin TX under $1.7M"
+        # Format: "houses for sale in Austin TX under $1.2M no pool"
         parts = ["houses for sale in", location]
 
         if max_price:
@@ -92,6 +92,11 @@ class ZillowClient:
                 parts.append(f"under ${max_price / 1_000_000:.1f}M")
             else:
                 parts.append(f"under ${max_price:,.0f}")
+
+        # Exclude pools
+        exclude_features = config.get("exclude_features", [])
+        if "pool" in exclude_features:
+            parts.append("no pool")
 
         return " ".join(parts)
 
