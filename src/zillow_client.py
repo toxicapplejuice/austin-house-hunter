@@ -66,25 +66,27 @@ class ZillowClient:
 
         return data
 
-    def build_search_prompt(self, config: dict[str, Any]) -> str:
+    def build_search_prompt(self, config: dict[str, Any], neighborhood: str | None = None) -> str:
         """
         Build a natural language search prompt from config.
 
         Args:
             config: Configuration dictionary with search criteria
+            neighborhood: Optional neighborhood to target the search
 
         Returns:
             Natural language prompt string
         """
-        # Location
-        location = config.get("location", "Austin, TX")
+        # Location - use neighborhood if provided
+        if neighborhood:
+            location = f"{neighborhood}, Austin, TX"
+        else:
+            location = config.get("location", "Austin, TX")
 
         # Price
-        min_price = config.get("min_price")
         max_price = config.get("max_price")
 
         # Build a simpler, more direct prompt
-        # Format: "houses for sale in Austin TX under $1.2M no pool"
         parts = ["houses for sale in", location]
 
         if max_price:

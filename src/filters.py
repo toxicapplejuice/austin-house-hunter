@@ -89,9 +89,16 @@ class ListingFilter:
         # Exclude features filter (e.g., pool)
         exclude_features = self.config.get("exclude_features", [])
         if exclude_features:
-            description = (listing.get("description") or "").lower()
+            # Check description and all other text fields for excluded features
+            text_fields = [
+                listing.get("description") or "",
+                listing.get("name") or "",
+                listing.get("address") or "",
+                listing.get("home_status") or "",
+            ]
+            combined_text = " ".join(text_fields).lower()
             for feature in exclude_features:
-                if feature.lower() in description:
+                if feature.lower() in combined_text:
                     return False
 
         return True

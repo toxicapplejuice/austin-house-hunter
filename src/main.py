@@ -262,7 +262,42 @@ def main() -> int:
         raw_listings = response
     print(f"Found {len(raw_listings)} raw listings")
 
+    # Do targeted searches for preferred neighborhoods
+    preferred_neighborhoods = preferences.get("preferred_neighborhoods", [])
+    for neighborhood in preferred_neighborhoods:
+        try:
+            neighborhood_prompt = zillow.build_search_prompt(config, neighborhood=neighborhood)
+            print(f"Targeted search: {neighborhood_prompt}")
+            nb_response = zillow.search_by_prompt(neighborhood_prompt)
+            nb_raw = (
+                nb_response.get("results", [])
+                or nb_response.get("props", [])
+                or nb_response.get("searchResults", [])
+                or nb_response.get("data", [])
+                or []
+            )
+            if not nb_raw and isinstance(nb_response, list):
+                nb_raw = nb_response
+            # Add to raw listings, deduplicating by zpid later
+            raw_listings.extend(nb_raw)
+            print(f"  Found {len(nb_raw)} listings in {neighborhood}")
+        except Exception as e:
+            print(f"  Targeted search for {neighborhood} failed: {e}")
+
     listings = [parse_listing(r) for r in raw_listings]
+
+    # Deduplicate by zpid
+    seen_zpids = set()
+    unique_listings = []
+    for listing in listings:
+        zpid = listing.get("zpid")
+        if zpid and zpid not in seen_zpids:
+            seen_zpids.add(zpid)
+            unique_listings.append(listing)
+        elif not zpid:
+            unique_listings.append(listing)
+    listings = unique_listings
+    print(f"After deduplication: {len(listings)} listings")
 
     # Apply additional filters
     listing_filter = ListingFilter(config)

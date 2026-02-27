@@ -200,10 +200,6 @@ class EmailSender:
         baths = listing.get("baths") or "?"
         beds_baths = f"{beds}bd/{baths}ba"
 
-        # Stories
-        stories = listing.get("stories")
-        stories_str = f"{stories}" if stories else "?"
-
         # Neighborhood with direction
         neighborhood = listing.get("neighborhood") or "Austin"
         direction = listing.get("direction") or ""
@@ -255,7 +251,7 @@ class EmailSender:
                    font-size: 12px; font-weight: 500;">★ Save</a>
             </td>'''
 
-        # Column order: Property, Price, Bed/Bath, Stories, Neighborhood, HOA, To Sapphire, Down | Monthly, Action
+        # Column order: Property, Price, Bed/Bath, Neighborhood, HOA, To Sapphire, Down | Monthly, Action
         return f'''
         <tr>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']};">
@@ -263,7 +259,6 @@ class EmailSender:
             </td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; font-weight: 600; color: {COLORS['text']};">{price_str}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{beds_baths}</td>
-            <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']}; text-align: center;">{stories_str}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']}; font-size: 13px;">{neighborhood_display}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{hoa_display}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{distance_str}</td>
@@ -285,13 +280,12 @@ class EmailSender:
         bob_greeting = self._get_bob_greeting(len(new_listings), len(favorites))
         bob_reasoning = self._get_bob_reasoning(preferences, len(favorites))
 
-        # Table headers - Column order: Property, Price, Bed/Bath, Stories, Neighborhood, HOA, To Sapphire, Down | Monthly, Action
+        # Table headers - Column order: Property, Price, Bed/Bath, Neighborhood, HOA, To Sapphire, Down | Monthly, Action
         headers_with_action = f'''
             <tr style="background-color: #F1F5F9;">
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Property</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Price</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Bed/Bath</th>
-                <th style="padding: 12px 8px; text-align: center; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Stories</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Neighborhood</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">HOA</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">To Sapphire</th>
@@ -305,7 +299,6 @@ class EmailSender:
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Property</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Price</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Bed/Bath</th>
-                <th style="padding: 12px 8px; text-align: center; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Stories</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Neighborhood</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">HOA</th>
                 <th style="padding: 12px 8px; text-align: left; border-bottom: 2px solid {COLORS['border']}; color: {COLORS['primary']}; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">To Sapphire</th>
