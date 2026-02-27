@@ -62,12 +62,15 @@ def update_preferences_from_favorites(favorites: dict[str, dict]) -> dict[str, A
     """
     Analyze all favorites and update preferences.
 
-    This recalculates preferences from scratch based on all favorited listings.
+    Merges learned preferences from favorites with existing manually-set
+    preferences (e.g., from feedback).
     """
+    # Start from existing preferences to preserve feedback-added neighborhoods
+    existing = load_preferences()
     prefs = get_default_preferences()
 
     if not favorites:
-        return prefs
+        return existing
 
     # Collect data from all favorites
     neighborhoods = []
@@ -145,6 +148,18 @@ def update_preferences_from_favorites(favorites: dict[str, dict]) -> dict[str, A
         elif hoa_false > hoa_true * 2:
             prefs["hoa_preference"] = False
         # Otherwise, no clear preference
+
+    # Merge in manually-set/feedback-added neighborhoods so they aren't lost
+    for n in existing.get("preferred_neighborhoods", []):
+        if n not in prefs.get("preferred_neighborhoods", []):
+            prefs["preferred_neighborhoods"].append(n)
+    for n, w in existing.get("neighborhood_weights", {}).items():
+        if n not in prefs.get("neighborhood_weights", {}):
+            prefs["neighborhood_weights"][n] = w
+
+    # Preserve HOA preference from feedback if favorites haven't set one
+    if prefs.get("hoa_preference") is None and existing.get("hoa_preference") is not None:
+        prefs["hoa_preference"] = existing["hoa_preference"]
 
     return prefs
 
