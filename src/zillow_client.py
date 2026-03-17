@@ -66,6 +66,42 @@ class ZillowClient:
 
         return data
 
+    def get_property_details(self, zpid: str) -> dict[str, Any] | None:
+        """
+        Fetch detailed property info including pool/feature data.
+
+        Returns parsed property dict or None on failure.
+        """
+        params = {"zpid": zpid}
+        try:
+            response = requests.get(
+                f"{self.BASE_URL}/property",
+                headers=self.headers,
+                params=params,
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"  Failed to fetch details for zpid {zpid}: {e}")
+            return None
+
+    @staticmethod
+    def extract_search_results(response: dict | list) -> tuple[list, int]:
+        """Extract listings and total pages from an API search response."""
+        if isinstance(response, list):
+            return response, 1
+        raw_listings = (
+            response.get("results", [])
+            or response.get("props", [])
+            or response.get("searchResults", [])
+            or response.get("data", [])
+            or []
+        )
+        pages_info = response.get("pagesInfo", {})
+        total_pages = pages_info.get("totalPages", 1) or 1
+        return raw_listings, total_pages
+
     def build_search_prompt(self, config: dict[str, Any], neighborhood: str | None = None) -> str:
         """
         Build a natural language search prompt from config.
@@ -101,6 +137,48 @@ class ZillowClient:
             parts.append("no pool")
 
         return " ".join(parts)
+
+
+def check_has_pool(details: dict[str, Any]) -> bool | None:
+    """
+    Check if a property has a pool from property details API response.
+
+    Returns True if pool detected, False if explicitly no pool, None if unknown.
+    """
+    prop = details.get("property", details)
+
+    # Check resoFacts for structured pool data
+    reso_facts = prop.get("resoFacts", {})
+    if reso_facts:
+        has_private_pool = reso_facts.get("hasPrivatePool")
+        if has_private_pool is not None:
+            return bool(has_private_pool)
+
+        pool_features = reso_facts.get("poolFeatures")
+        if pool_features:
+            # poolFeatures is a list like ["In Ground", "Gunite"] or ["None"]
+            non_none = [f for f in pool_features if f and f.lower() != "none"]
+            if non_none:
+                return True
+            return False
+
+    # Fallback: check full description text for pool mentions
+    description = (
+        prop.get("description")
+        or prop.get("homeDescription")
+        or ""
+    )
+    if description:
+        desc_lower = description.lower()
+        pool_keywords = ["pool", "swimming"]
+        # Avoid false positives from "no pool", "pool table", "carpool"
+        negatives = ["no pool", "pool table", "carpool"]
+        has_keyword = any(kw in desc_lower for kw in pool_keywords)
+        has_negative = any(neg in desc_lower for neg in negatives)
+        if has_keyword and not has_negative:
+            return True
+
+    return None
 
 
 def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
@@ -157,6 +235,7 @@ def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
         "stories": stories,
         "has_hoa": has_hoa,
         "hoa_fee": hoa_fee,
+        "has_pool": None,  # populated later from property details
         "description": description,
         "days_on_market": prop.get("daysOnZillow") or prop.get("timeOnZillow"),
         "photo_url": photo_url or prop.get("imgSrc") or prop.get("image"),

@@ -89,17 +89,31 @@ class ListingFilter:
         # Exclude features filter (e.g., pool)
         exclude_features = self.config.get("exclude_features", [])
         if exclude_features:
-            # Check description and all other text fields for excluded features
-            text_fields = [
-                listing.get("description") or "",
-                listing.get("name") or "",
-                listing.get("address") or "",
-                listing.get("home_status") or "",
-            ]
-            combined_text = " ".join(text_fields).lower()
             for feature in exclude_features:
-                if feature.lower() in combined_text:
-                    return False
+                if feature.lower() == "pool":
+                    # Use structured has_pool field (from property details API)
+                    has_pool = listing.get("has_pool")
+                    if has_pool is True:
+                        return False
+                    # If has_pool is None (no details fetched), fall through
+                    # to text check as a best-effort fallback
+                    if has_pool is None:
+                        text_fields = [
+                            listing.get("description") or "",
+                            listing.get("name") or "",
+                        ]
+                        combined_text = " ".join(text_fields).lower()
+                        if "pool" in combined_text and "no pool" not in combined_text:
+                            return False
+                else:
+                    # Generic text-based exclusion for other features
+                    text_fields = [
+                        listing.get("description") or "",
+                        listing.get("name") or "",
+                    ]
+                    combined_text = " ".join(text_fields).lower()
+                    if feature.lower() in combined_text:
+                        return False
 
         return True
 

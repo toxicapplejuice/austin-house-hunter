@@ -16,7 +16,7 @@ from learning import (
     update_preferences_from_favorites,
 )
 from location import distance_to_sapphire, get_neighborhood
-from zillow_client import ZillowClient, parse_listing
+from zillow_client import ZillowClient, check_has_pool, parse_listing
 
 # Configuration
 MAX_LISTINGS = 5  # Top N listings to show
@@ -242,45 +242,41 @@ def main() -> int:
     search_prompt = zillow.build_search_prompt(config)
     print(f"Search prompt: {search_prompt}")
 
-    # Search for listings
+    # Search for listings (with pagination)
     print("Fetching listings from Zillow...")
+    raw_listings = []
     try:
         response = zillow.search_by_prompt(search_prompt)
+        page1, total_pages = zillow.extract_search_results(response)
+        raw_listings.extend(page1)
+        print(f"Found {len(page1)} raw listings (page 1 of {total_pages})")
+
+        # Fetch page 2 if available
+        if total_pages > 1:
+            response_p2 = zillow.search_by_prompt(search_prompt, page=2)
+            page2, _ = zillow.extract_search_results(response_p2)
+            raw_listings.extend(page2)
+            print(f"Found {len(page2)} raw listings (page 2)")
     except Exception as e:
         print(f"Error fetching listings: {e}")
         return 1
 
-    # Parse listings - handle different response structures
-    raw_listings = (
-        response.get("results", [])
-        or response.get("props", [])
-        or response.get("searchResults", [])
-        or response.get("data", [])
-        or []
-    )
-    if not raw_listings and isinstance(response, list):
-        raw_listings = response
-    print(f"Found {len(raw_listings)} raw listings")
-
-    # Do targeted searches for preferred neighborhoods
+    # Do targeted searches for preferred neighborhoods (with pagination)
     preferred_neighborhoods = preferences.get("preferred_neighborhoods", [])
     for neighborhood in preferred_neighborhoods:
         try:
             neighborhood_prompt = zillow.build_search_prompt(config, neighborhood=neighborhood)
             print(f"Targeted search: {neighborhood_prompt}")
             nb_response = zillow.search_by_prompt(neighborhood_prompt)
-            nb_raw = (
-                nb_response.get("results", [])
-                or nb_response.get("props", [])
-                or nb_response.get("searchResults", [])
-                or nb_response.get("data", [])
-                or []
-            )
-            if not nb_raw and isinstance(nb_response, list):
-                nb_raw = nb_response
-            # Add to raw listings, deduplicating by zpid later
-            raw_listings.extend(nb_raw)
-            print(f"  Found {len(nb_raw)} listings in {neighborhood}")
+            nb_page1, nb_total_pages = zillow.extract_search_results(nb_response)
+            raw_listings.extend(nb_page1)
+            print(f"  Found {len(nb_page1)} listings in {neighborhood} (page 1 of {nb_total_pages})")
+
+            if nb_total_pages > 1:
+                nb_response_p2 = zillow.search_by_prompt(neighborhood_prompt, page=2)
+                nb_page2, _ = zillow.extract_search_results(nb_response_p2)
+                raw_listings.extend(nb_page2)
+                print(f"  Found {len(nb_page2)} listings in {neighborhood} (page 2)")
         except Exception as e:
             print(f"  Targeted search for {neighborhood} failed: {e}")
 
@@ -299,33 +295,54 @@ def main() -> int:
     listings = unique_listings
     print(f"After deduplication: {len(listings)} listings")
 
-    # Apply additional filters
+    # Apply initial filters (price, beds, baths, sqft, type)
     listing_filter = ListingFilter(config)
     filtered = listing_filter.filter_listings(listings)
-    print(f"After filtering: {len(filtered)} listings match criteria")
+    print(f"After initial filtering: {len(filtered)} listings match criteria")
 
-    # Enrich with distance calculations
+    # Enrich with distance calculations (needed for all filtered, including favorites)
     for listing in filtered:
         enrich_listing(listing)
 
-    # Filter out favorites (always exclude favorites from new listings)
+    # Remove already-seen listings BEFORE expensive property detail API calls
     favorite_zpids = set(favorites.keys())
-
     if TESTING_MODE:
-        # In testing mode, only exclude favorites, not dismissed
-        new_listings = [
+        candidates = [
             l for l in filtered
             if l.get("zpid") and l["zpid"] not in favorite_zpids
         ]
-        print(f"After removing favorites only (testing mode): {len(new_listings)} new listings")
+        print(f"After removing favorites only (testing mode): {len(candidates)} candidates")
     else:
-        # Normal mode: exclude both favorites and dismissed
         dismissed_zpids = set(dismissed)
-        new_listings = [
+        candidates = [
             l for l in filtered
             if l.get("zpid") and l["zpid"] not in favorite_zpids and l["zpid"] not in dismissed_zpids
         ]
-        print(f"After removing favorites/dismissed: {len(new_listings)} new listings")
+        print(f"After removing favorites/dismissed: {len(candidates)} candidates")
+
+    # Fetch property details to get pool data (only for unseen candidates)
+    exclude_features = config.get("exclude_features", [])
+    if "pool" in exclude_features:
+        print(f"Fetching property details for pool check ({len(candidates)} listings)...")
+        new_listings = []
+        for listing in candidates:
+            zpid = listing.get("zpid")
+            if not zpid:
+                new_listings.append(listing)
+                continue
+
+            details = zillow.get_property_details(zpid)
+            if details:
+                has_pool = check_has_pool(details)
+                listing["has_pool"] = has_pool
+                if has_pool is True:
+                    print(f"  EXCLUDED (pool): {listing.get('address', 'Unknown')}")
+                    continue
+            new_listings.append(listing)
+
+        print(f"After pool filter: {len(new_listings)} listings (removed {len(candidates) - len(new_listings)} with pools)")
+    else:
+        new_listings = candidates
 
     # Calculate relevance scores (for potential future use)
     for listing in new_listings:
