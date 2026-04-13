@@ -325,7 +325,9 @@ def main() -> int:
     if "pool" in exclude_features:
         print(f"Fetching property details for pool check ({len(candidates)} listings)...")
         new_listings = []
+        unknown_count = 0
         for listing in candidates:
+            addr = listing.get("address", "Unknown")
             zpid = listing.get("zpid")
             if not zpid:
                 new_listings.append(listing)
@@ -333,14 +335,26 @@ def main() -> int:
 
             details = zillow.get_property_details(zpid)
             if details:
-                has_pool = check_has_pool(details)
+                has_pool, pool_reason = check_has_pool(details)
                 listing["has_pool"] = has_pool
                 if has_pool is True:
-                    print(f"  EXCLUDED (pool): {listing.get('address', 'Unknown')}")
+                    print(f"  EXCLUDED (pool):    {addr} — {pool_reason}")
                     continue
+                elif has_pool is None:
+                    unknown_count += 1
+                    print(f"  UNKNOWN pool status: {addr} — {pool_reason}")
+                else:
+                    print(f"  OK (confirmed no pool): {addr} — {pool_reason}")
+            else:
+                listing["has_pool"] = None
+                unknown_count += 1
+                print(f"  UNKNOWN pool status: {addr} — API call failed")
             new_listings.append(listing)
 
-        print(f"After pool filter: {len(new_listings)} listings (removed {len(candidates) - len(new_listings)} with pools)")
+        excluded = len(candidates) - len(new_listings)
+        print(f"After pool filter: {len(new_listings)} listings (excluded {excluded} with pools, {unknown_count} unknown pool status)")
+        if unknown_count > 0:
+            print(f"  WARNING: {unknown_count} listings have unknown pool status and were included")
     else:
         new_listings = candidates
 
@@ -400,16 +414,41 @@ def main() -> int:
 
     # Prepare favorites list for email (enrich with current data if available)
     favorites_list = []
+    favorites_updated = False
     for zpid, fav_data in favorites.items():
-        # Try to find fresh data for this listing
+        # Try to find fresh data in current search results first
         fresh = next((l for l in filtered if l.get("zpid") == zpid), None)
         if fresh:
             enrich_listing(fresh)
+            # Persist enriched data back so future runs don't need to re-fetch
+            favorites[zpid] = fresh
+            favorites_updated = True
             favorites_list.append(fresh)
-        else:
-            # Use stored data, but enrich it
+        elif fav_data.get("price") and fav_data.get("address"):
+            # Have real data stored already — just enrich and use it
             enrich_listing(fav_data)
             favorites_list.append(fav_data)
+        else:
+            # Stub from workflow (only zpid/zillow_url) — fetch from API
+            print(f"Fetching details for favorite stub: zpid={zpid}")
+            details = zillow.get_property_details(zpid)
+            if details:
+                parsed = parse_listing(details)
+                parsed["zpid"] = zpid  # ensure zpid is set
+                enrich_listing(parsed)
+                # Save enriched data so we don't re-fetch next time
+                favorites[zpid] = parsed
+                favorites_updated = True
+                favorites_list.append(parsed)
+                print(f"  Enriched favorite: {parsed.get('address', 'Unknown')}")
+            else:
+                # API failed — use stub but at least enrich what we have
+                print(f"  Could not fetch details for favorite zpid={zpid}, using stub")
+                enrich_listing(fav_data)
+                favorites_list.append(fav_data)
+
+    if favorites_updated:
+        save_favorites(favorites)
 
     # Sort favorites by distance
     favorites_list.sort(key=lambda x: x.get("distance") or float("inf"))

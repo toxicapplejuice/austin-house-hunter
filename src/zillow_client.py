@@ -139,46 +139,84 @@ class ZillowClient:
         return " ".join(parts)
 
 
-def check_has_pool(details: dict[str, Any]) -> bool | None:
+def check_has_pool(details: dict[str, Any]) -> tuple[bool | None, str]:
     """
     Check if a property has a pool from property details API response.
 
-    Returns True if pool detected, False if explicitly no pool, None if unknown.
+    Returns (result, reason) where:
+      result: True if pool detected, False if explicitly no pool, None if unknown
+      reason: debug string explaining how the result was determined
     """
     prop = details.get("property", details)
 
-    # Check resoFacts for structured pool data
-    reso_facts = prop.get("resoFacts", {})
-    if reso_facts:
-        has_private_pool = reso_facts.get("hasPrivatePool")
-        if has_private_pool is not None:
-            return bool(has_private_pool)
+    # 1. resoFacts.hasPrivatePool — most reliable structured field
+    reso_facts = prop.get("resoFacts") or {}
+    has_private_pool = reso_facts.get("hasPrivatePool")
+    if has_private_pool is not None:
+        return bool(has_private_pool), f"resoFacts.hasPrivatePool={has_private_pool}"
 
-        pool_features = reso_facts.get("poolFeatures")
-        if pool_features:
-            # poolFeatures is a list like ["In Ground", "Gunite"] or ["None"]
-            non_none = [f for f in pool_features if f and f.lower() != "none"]
-            if non_none:
-                return True
-            return False
+    # 2. resoFacts.poolFeatures — list like ["In Ground", "Gunite"] or ["None"]
+    pool_features = reso_facts.get("poolFeatures")
+    if pool_features:
+        non_none = [f for f in pool_features if f and f.lower() != "none"]
+        if non_none:
+            return True, f"resoFacts.poolFeatures={non_none}"
+        return False, f"resoFacts.poolFeatures=['None']"
 
-    # Fallback: check full description text for pool mentions
-    description = (
-        prop.get("description")
-        or prop.get("homeDescription")
-        or ""
-    )
+    # 3. atAGlanceFacts — list of {factLabel, factValue} dicts
+    at_a_glance = prop.get("atAGlanceFacts") or []
+    for fact in at_a_glance:
+        label = (fact.get("factLabel") or "").lower()
+        value = str(fact.get("factValue") or "").lower()
+        if "pool" in label or "pool" in value:
+            if value in ("false", "no", "none", "") or "no pool" in value:
+                return False, f"atAGlanceFacts: {fact.get('factLabel')}={fact.get('factValue')}"
+            return True, f"atAGlanceFacts: {fact.get('factLabel')}={fact.get('factValue')}"
+
+    # 4. homeFacts dict
+    home_facts = prop.get("homeFacts") or {}
+    for key in ("pool", "hasPool", "privatePool"):
+        pool_fact = home_facts.get(key)
+        if pool_fact is not None:
+            if isinstance(pool_fact, bool):
+                return pool_fact, f"homeFacts.{key}={pool_fact}"
+            val = str(pool_fact).lower()
+            if val in ("yes", "true"):
+                return True, f"homeFacts.{key}={pool_fact}"
+            if val in ("no", "false", "none"):
+                return False, f"homeFacts.{key}={pool_fact}"
+
+    # 5. features list (strings or dicts)
+    features = prop.get("features") or []
+    if isinstance(features, list):
+        for feature in features:
+            text = feature if isinstance(feature, str) else str(feature)
+            text_lower = text.lower()
+            if "pool" in text_lower and "no pool" not in text_lower and "pool table" not in text_lower:
+                return True, f"features contains: {text[:80]}"
+
+    # 6. amenities list
+    amenities = prop.get("amenities") or []
+    if isinstance(amenities, list):
+        for amenity in amenities:
+            text = amenity if isinstance(amenity, str) else str(amenity)
+            text_lower = text.lower()
+            if "pool" in text_lower and "no pool" not in text_lower:
+                return True, f"amenities contains: {text[:80]}"
+
+    # 7. Text fallback: description fields
+    description = prop.get("description") or prop.get("homeDescription") or ""
     if description:
         desc_lower = description.lower()
-        pool_keywords = ["pool", "swimming"]
-        # Avoid false positives from "no pool", "pool table", "carpool"
-        negatives = ["no pool", "pool table", "carpool"]
-        has_keyword = any(kw in desc_lower for kw in pool_keywords)
+        negatives = ["no pool", "pool table", "carpool", "pool bath"]
+        has_pool_keyword = "pool" in desc_lower or "swimming" in desc_lower
         has_negative = any(neg in desc_lower for neg in negatives)
-        if has_keyword and not has_negative:
-            return True
+        if has_pool_keyword and not has_negative:
+            return True, "description text mentions pool"
+        if has_pool_keyword and has_negative:
+            return False, "description text mentions pool with negation"
 
-    return None
+    return None, "no pool data found in any API field"
 
 
 def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
