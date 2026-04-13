@@ -6,6 +6,7 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
+from urllib.parse import quote
 
 from financials import (
     calculate_down_payment,
@@ -187,21 +188,26 @@ class EmailSender:
 
     def _build_listing_row(self, listing: dict[str, Any], show_favorite_link: bool = True) -> str:
         """Build a single table row for a listing."""
-        name = listing.get("name") or listing.get("address") or "Unknown"
-        if len(name) > 35:
+        name = listing.get("address") or listing.get("name") or "Unknown"
+        if name.startswith("Property ") and name[9:].isdigit():
+            name = "View on Zillow →"
+        elif len(name) > 35:
             name = name[:32] + "..."
+
+        # Detect stub (saved from old workflow before data embedding was added)
+        is_stub = not listing.get("price") and not listing.get("address")
 
         # Price (2nd column)
         price = listing.get("price") or 0
-        price_str = f"${price:,.0f}" if price else "N/A"
+        price_str = f"${price:,.0f}" if price else "—"
 
         # Bed/Bath
-        beds = listing.get("beds") or "?"
-        baths = listing.get("baths") or "?"
-        beds_baths = f"{beds}bd/{baths}ba"
+        beds = listing.get("beds") or ""
+        baths = listing.get("baths") or ""
+        beds_baths = f"{beds}bd/{baths}ba" if beds and baths else "—"
 
         # Neighborhood with direction
-        neighborhood = listing.get("neighborhood") or "Austin"
+        neighborhood = listing.get("neighborhood") or ("Austin" if not is_stub else "—")
         direction = listing.get("direction") or ""
         if direction and direction != "Central":
             neighborhood_display = f"{neighborhood} ({direction})"
@@ -234,13 +240,27 @@ class EmailSender:
         if down and monthly:
             financials_str = f"${down:,.0f} | ${monthly:,.0f}/mo"
         else:
-            financials_str = "N/A"
+            financials_str = "—"
 
         zillow_url = listing.get("zillow_url") or "#"
         zpid = listing.get("zpid") or ""
 
-        # Favorite link (no labels param - workflow detects by title prefix)
-        favorite_url = f"https://github.com/{GITHUB_REPO}/issues/new?title=FAVORITE:%20{zpid}&body=Favoriting%20property%20{zpid}"
+        # Embed listing data in issue body so workflow can store it without needing API
+        body_lines = [
+            f"address={listing.get('address') or ''}",
+            f"price={listing.get('price') or ''}",
+            f"beds={listing.get('beds') or ''}",
+            f"baths={listing.get('baths') or ''}",
+            f"sqft={listing.get('sqft') or ''}",
+            f"neighborhood={listing.get('neighborhood') or ''}",
+            f"latitude={listing.get('latitude') or ''}",
+            f"longitude={listing.get('longitude') or ''}",
+            f"has_hoa={listing.get('has_hoa') or 'false'}",
+            f"hoa_fee={listing.get('hoa_fee') or ''}",
+            f"zillow_url={listing.get('zillow_url') or ''}",
+        ]
+        issue_body = quote("\n".join(body_lines))
+        favorite_url = f"https://github.com/{GITHUB_REPO}/issues/new?title=FAVORITE:%20{zpid}&body={issue_body}"
 
         favorite_cell = ""
         if show_favorite_link:

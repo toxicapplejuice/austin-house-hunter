@@ -26,22 +26,21 @@ jobs:
       - name: Extract ZPID and update favorites
         env:
           ISSUE_TITLE: ${{ github.event.issue.title }}
-          RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
         run: |
           # Extract zpid from issue title (format: "FAVORITE: 12345678")
           ZPID=$(echo "$ISSUE_TITLE" | sed 's/FAVORITE:[[:space:]]*//')
           echo "Processing favorite for ZPID: $ZPID"
 
-          # Create data directory if it doesn't exist
           mkdir -p data
 
-          # Create or update favorites.json
-          python3 << EOF
+          python3 << 'PYEOF'
           import json
           import os
           from pathlib import Path
 
-          zpid = "$ZPID".strip()
+          zpid = os.environ["ISSUE_TITLE"].replace("FAVORITE:", "").strip()
+          issue_body = os.environ.get("ISSUE_BODY", "")
           favorites_file = Path("data/favorites.json")
 
           # Load existing favorites
@@ -51,25 +50,49 @@ jobs:
           else:
               favorites = {}
 
-          # Add the new favorite with minimal data
-          # The main script will enrich this with fresh data
+          # Parse key=value pairs from issue body (embedded by email_sender.py)
+          data = {}
+          for line in issue_body.splitlines():
+              if "=" in line:
+                  key, _, value = line.partition("=")
+                  key = key.strip()
+                  value = value.strip()
+                  if value:
+                      data[key] = value
+
+          def coerce(val, typ):
+              try:
+                  return typ(val)
+              except (TypeError, ValueError):
+                  return None
+
+          entry = {
+              "zpid": zpid,
+              "address": data.get("address") or f"Property {zpid}",
+              "name": data.get("address") or f"Property {zpid}",
+              "price": coerce(data.get("price"), float),
+              "beds": coerce(data.get("beds"), float),
+              "baths": coerce(data.get("baths"), float),
+              "sqft": coerce(data.get("sqft"), float),
+              "neighborhood": data.get("neighborhood") or None,
+              "latitude": coerce(data.get("latitude"), float),
+              "longitude": coerce(data.get("longitude"), float),
+              "has_hoa": data.get("has_hoa", "").lower() == "true",
+              "hoa_fee": coerce(data.get("hoa_fee"), float),
+              "zillow_url": data.get("zillow_url") or f"https://www.zillow.com/homedetails/{zpid}_zpid/",
+          }
+
           if zpid not in favorites:
-              favorites[zpid] = {
-                  "zpid": zpid,
-                  "name": f"Property {zpid}",
-                  "zillow_url": f"https://www.zillow.com/homedetails/{zpid}_zpid/",
-                  "favorited_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-              }
-              print(f"Added {zpid} to favorites")
+              favorites[zpid] = entry
+              print(f"Added {zpid} to favorites: {entry.get('address')}")
           else:
               print(f"{zpid} already in favorites")
 
-          # Save
           with open(favorites_file, "w") as f:
               json.dump(favorites, f, indent=2)
 
           print(f"Total favorites: {len(favorites)}")
-          EOF
+          PYEOF
 
       - name: Commit and push favorites
         run: |
