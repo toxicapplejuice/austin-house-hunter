@@ -26,11 +26,40 @@ def main() -> int:
         return 1
 
     item = results[0]
-    print("=== FULL first search result item (all available fields) ===")
-    print(json.dumps(item, indent=2)[:8000])
-
     prop = item.get("property", item)
     zpid = prop.get("zpid") or item.get("zpid")
+
+    needles = ["pool", "school", "reso", "atagl", "homefact", "amenit",
+               "feature", "district", "descr", "hdpdata", "hometype", "fact"]
+
+    def find_keys(obj, path=""):
+        hits = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                kp = f"{path}.{k}"
+                if any(n in str(k).lower() for n in needles):
+                    shown = v if not isinstance(v, (dict, list)) else f"{type(v).__name__}({len(v)})"
+                    hits.append((kp, shown))
+                hits += find_keys(v, kp)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj[:4]):
+                hits += find_keys(v, f"{path}[{i}]")
+        return hits
+
+    # Strip the giant photo arrays so the rest of the item is visible.
+    slim = json.loads(json.dumps(item))
+    try:
+        del slim["property"]["media"]
+    except Exception:  # noqa: BLE001
+        pass
+
+    print("=== search item: property.* keys ===")
+    print(sorted(prop.keys()))
+    print("\n=== search item: pool/school/descr key paths ===")
+    for kp, shown in find_keys(item):
+        print(f"  {kp} = {str(shown)[:200]}")
+    print("\n=== search item (media stripped, truncated) ===")
+    print(json.dumps(slim, indent=2)[:7000])
     print(f"\nzpid = {zpid}")
 
     # Confirmed working detail endpoint: /byzpid?zpid=...
