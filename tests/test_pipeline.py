@@ -1,8 +1,9 @@
-"""End-to-end pipeline test with mocked Zillow API + email (no network, no key).
+"""End-to-end pipeline test with mocked search + vision + email (no network).
 
-Proves the orchestration wiring: search -> filter -> enrich -> geo pre-filter ->
-fail-closed pool exclusion + school extraction -> bucket selection -> email. Runs
-against the real config.yaml buckets but isolates all data-file writes to a tmp dir.
+Proves the orchestration: search -> filter -> enrich -> geo pre-filter -> vision
+pool exclusion (fail closed) -> bucket fill -> email. Runs against the real
+config.yaml buckets but isolates all data-file writes to a tmp dir and stubs the
+vision call (no Anthropic API hit).
 """
 
 import main as m
@@ -12,12 +13,13 @@ TARRYTOWN = (30.305, -97.770)
 KYLE = (29.989, -97.877)
 
 
-def _raw(zpid, lat, lon, price=800_000, city="Austin"):
+def _raw(zpid, lat, lon, price=800_000, city="Austin", photos=None):
     return {
         "zpid": zpid,
-        "address": {"streetAddress": f"{zpid} Test St", "city": city, "state": "TX", "zipcode": "78750"},
+        "address": {"streetAddress": f"{zpid} Test St", "city": city, "state": "TX", "zipcode": "78717"},
         "location": {"latitude": lat, "longitude": lon},
-        "price": price,
+        "media": {"allPropertyPhotos": {"medium": photos or [f"http://photo/{zpid}.jpg"]}},
+        "price": {"value": price},
         "bedrooms": 4,
         "bathrooms": 3,
         "livingArea": 2500,
@@ -27,20 +29,12 @@ def _raw(zpid, lat, lon, price=800_000, city="Austin"):
 
 
 SEARCH_RESULTS = [
-    _raw("RR1", *ROUND_ROCK, city="Round Rock"),    # bucket A, pool-free, Westwood-zoned
-    _raw("POOL", *ROUND_ROCK, city="Round Rock"),   # has a pool -> excluded
-    _raw("UNK", *ROUND_ROCK, city="Round Rock"),    # unknown pool status -> excluded (fail closed)
-    _raw("TT1", TARRYTOWN[0], TARRYTOWN[1], price=1_800_000),  # bucket B
-    _raw("FAR", *KYLE, city="Kyle"),                # far away -> dropped by geo pre-filter
+    _raw("RR1", *ROUND_ROCK, city="Round Rock"),                       # bucket A, pool-free
+    _raw("POOL", *ROUND_ROCK, city="Round Rock", photos=["http://x/HASPOOL.jpg"]),  # excluded
+    _raw("UNK", *ROUND_ROCK, city="Round Rock", photos=["http://x/UNKNOWN.jpg"]),   # fail-closed
+    _raw("TT1", TARRYTOWN[0], TARRYTOWN[1], price=1_800_000),          # bucket B
+    _raw("FAR", *KYLE, city="Kyle"),                                   # geo pre-filtered out
 ]
-
-DETAILS = {
-    "RR1": {"property": {"resoFacts": {"hasPrivatePool": False, "highSchool": "Westwood High School"}}},
-    "POOL": {"property": {"resoFacts": {"hasPrivatePool": True, "highSchool": "Westwood High School"}}},
-    "UNK": {"property": {"resoFacts": {}}},  # no pool data -> check_has_pool returns None
-    "TT1": {"property": {"resoFacts": {"hasPrivatePool": False, "highSchool": "Austin High School"}}},
-    "FAR": {"property": {"resoFacts": {"hasPrivatePool": False}}},
-}
 
 _captured: list = []
 
@@ -53,15 +47,14 @@ class FakeZillow:
         return location_override or neighborhood or config.get("location", "Austin, TX")
 
     def search_by_prompt(self, prompt, page=1, sort_order="Newest"):
-        results = SEARCH_RESULTS if page == 1 else []
-        return {"props": results, "pagesInfo": {"totalPages": 1}}
+        return {"props": SEARCH_RESULTS if page == 1 else [], "pagesInfo": {"totalPages": 1}}
 
     @staticmethod
     def extract_search_results(response):
         return response.get("props", []), response.get("pagesInfo", {}).get("totalPages", 1)
 
-    def get_property_details(self, zpid):
-        return DETAILS.get(zpid)
+    def get_property_details(self, zpid):  # only used for favorite stubs (none here)
+        return None
 
 
 class FakeEmail:
@@ -73,13 +66,24 @@ class FakeEmail:
         return True
 
 
-def test_pipeline_excludes_pools_and_fills_buckets(monkeypatch, tmp_path):
+def _fake_detect(photo_urls, **kwargs):
+    urls = photo_urls or []
+    if any("HASPOOL" in u for u in urls):
+        return True, "pool"
+    if any("UNKNOWN" in u for u in urls):
+        return None, "unsure"
+    return False, "no pool"
+
+
+def test_pipeline_vision_excludes_pools_and_fills_buckets(monkeypatch, tmp_path):
     _captured.clear()
     monkeypatch.setattr(m, "ZillowClient", FakeZillow)
     monkeypatch.setattr(m, "EmailSender", FakeEmail)
-    monkeypatch.setattr(m, "DATA_DIR", tmp_path)   # isolate all data-file writes
+    monkeypatch.setattr(m, "DATA_DIR", tmp_path)
     monkeypatch.setattr(m, "TESTING_MODE", True)
+    monkeypatch.setattr(m, "detect_pool_from_photos", _fake_detect)
     monkeypatch.setenv("RAPIDAPI_KEY", "test")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
     monkeypatch.setenv("GMAIL_ADDRESS", "x@y.com")
     monkeypatch.setenv("GMAIL_APP_PASSWORD", "pw")
     monkeypatch.setenv("RECIPIENT_EMAIL", "to@y.com")
@@ -87,7 +91,7 @@ def test_pipeline_excludes_pools_and_fills_buckets(monkeypatch, tmp_path):
 
     assert m.main() == 0
 
-    assert len(_captured) == 1, "exactly one recipient should have been emailed"
+    assert len(_captured) == 1
     new = _captured[0]
     zpids = {l["zpid"] for l in new}
 
@@ -97,5 +101,4 @@ def test_pipeline_excludes_pools_and_fills_buckets(monkeypatch, tmp_path):
 
     by = {l["zpid"]: l for l in new}
     assert by["RR1"]["bucket"] == "Round Rock / Westwood-Zoned"
-    assert "Westwood" in (by["RR1"].get("high_school") or "")
     assert by["TT1"]["bucket"] == "Westlake & Central"

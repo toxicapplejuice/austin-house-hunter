@@ -3,6 +3,7 @@
 from buckets import (
     bucket_score,
     coarse_bucket_candidate,
+    fill_buckets,
     matches_bucket,
     select_bucketed,
 )
@@ -176,3 +177,58 @@ def test_select_ranks_cheaper_first_within_bucket():
     ]
     out = select_bucketed(listings, BUCKETS, MIN_PRICE)
     assert out[0]["zpid"] == "2"
+
+
+# --- fill_buckets: lazy, budgeted, fail-closed pool filtering -------------------
+
+def _pool_check_factory(pool_zpids=(), unknown_zpids=()):
+    """Fake pool_check that records call order; pool_zpids -> True, unknown -> None."""
+    calls = []
+
+    def check(listing):
+        zpid = listing.get("zpid")
+        calls.append(zpid)
+        if zpid in pool_zpids:
+            return True, "pool"
+        if zpid in unknown_zpids:
+            return None, "unsure"
+        return False, "no pool"
+
+    check.calls = calls
+    return check
+
+
+def test_fill_excludes_confirmed_pool_homes():
+    listings = [_mk(i, city="Round Rock") for i in (1, 2, 3)]
+    check = _pool_check_factory(pool_zpids={"2"})
+    out = fill_buckets(listings, [BUCKET_A], MIN_PRICE, pool_check=check)
+    assert {l["zpid"] for l in out} == {"1", "3"}
+
+
+def test_fill_fails_closed_on_unknown():
+    listings = [_mk(1, city="Round Rock"), _mk(2, city="Round Rock")]
+    check = _pool_check_factory(unknown_zpids={"1"})
+    out = fill_buckets(listings, [BUCKET_A], MIN_PRICE, pool_check=check)
+    assert {l["zpid"] for l in out} == {"2"}  # unknown is dropped, not included
+
+
+def test_fill_is_lazy_stops_when_bucket_full():
+    # 10 pool-free homes, bucket wants 6 -> only 6 (lazy) pool checks happen.
+    listings = [_mk(i, city="Round Rock") for i in range(10)]
+    check = _pool_check_factory()
+    out = fill_buckets(listings, [BUCKET_A], MIN_PRICE, pool_check=check)
+    assert len(out) == 6
+    assert len(check.calls) == 6
+
+
+def test_fill_budget_cap_forces_underfill():
+    listings = [_mk(i, city="Round Rock") for i in range(10)]
+    check = _pool_check_factory()
+    out = fill_buckets(listings, [BUCKET_A], MIN_PRICE, pool_check=check, max_pool_checks=3)
+    assert len(out) == 3            # budget exhausted -> remaining treated as unknown
+    assert len(check.calls) == 3    # no checks beyond the cap
+
+
+def test_fill_without_pool_check_matches_select_bucketed():
+    listings = [_mk(i, city="Round Rock") for i in range(8)]
+    assert len(fill_buckets(listings, [BUCKET_A], MIN_PRICE, pool_check=None)) == 6

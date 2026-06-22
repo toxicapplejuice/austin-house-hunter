@@ -19,6 +19,7 @@ This module is intentionally free of API/IO so it is cheap to unit-test.
 from typing import Any
 
 from location import NEIGHBORHOODS, haversine_distance
+from zillow_client import passes_pool_filter
 
 DEFAULT_COARSE_RADIUS_MILES = 5.0
 
@@ -132,53 +133,85 @@ def _key(listing: dict[str, Any]) -> Any:
     return listing.get("zpid") or id(listing)
 
 
+def _ranked(
+    items: list[dict[str, Any]], bucket: dict[str, Any], min_price: float | None
+) -> list[dict[str, Any]]:
+    for item in items:
+        item["bucket_score"] = bucket_score(item, bucket, min_price)
+    return sorted(items, key=lambda x: x.get("bucket_score", 0), reverse=True)
+
+
+def fill_buckets(
+    listings: list[dict[str, Any]],
+    buckets: list[dict[str, Any]],
+    min_price: float | None = None,
+    pool_check: Any = None,
+    max_pool_checks: int | None = None,
+) -> list[dict[str, Any]]:
+    """Fill each bucket up to its ``count``, ranked by ``bucket_score``.
+
+    Strict matches first; if short, widen to ``relax_neighborhoods``; if still
+    short, take fewer (never cross-fill from the other bucket).
+
+    When ``pool_check`` is given it is called LAZILY — only on candidates we're
+    about to select, in ranked order — so paid pool checks are minimized. The
+    signature is ``pool_check(listing) -> (has_pool, reason)``; a home passes only
+    if confirmed pool-free (fail closed: True or None are dropped). ``max_pool_checks``
+    caps total checks; once hit, unchecked candidates are treated as unknown.
+
+    Mutates chosen listings with ``bucket``/``bucket_score`` and any checked listing
+    with ``has_pool``/``pool_reason``. Returns a flat list ordered by bucket order.
+    """
+    selected: list[dict[str, Any]] = []
+    used: set[Any] = set()
+    cache: dict[Any, bool | None] = {}
+    checks = {"n": 0}
+
+    def _passes_pool(listing: dict[str, Any]) -> bool:
+        if pool_check is None:
+            return True
+        k = _key(listing)
+        if k not in cache:
+            if max_pool_checks is not None and checks["n"] >= max_pool_checks:
+                has_pool, reason = None, "pool-check budget exhausted"
+            else:
+                has_pool, reason = pool_check(listing)
+                checks["n"] += 1
+            cache[k] = has_pool
+            listing["has_pool"] = has_pool
+            listing["pool_reason"] = reason
+        return passes_pool_filter(cache[k], exclude_pool=True)
+
+    for bucket in buckets:
+        name = bucket.get("name", "")
+        count = bucket.get("count", 0)
+        chosen: list[dict[str, Any]] = []
+
+        for relaxed in (False, True):
+            if len(chosen) >= count:
+                break
+            ranked = _ranked(
+                [l for l in listings if _key(l) not in used and matches_bucket(l, bucket, relaxed)],
+                bucket,
+                min_price,
+            )
+            for cand in ranked:
+                if len(chosen) >= count:
+                    break
+                if _passes_pool(cand):
+                    cand["bucket"] = name
+                    used.add(_key(cand))
+                    chosen.append(cand)
+
+        selected.extend(chosen)
+
+    return selected
+
+
 def select_bucketed(
     listings: list[dict[str, Any]],
     buckets: list[dict[str, Any]],
     min_price: float | None = None,
 ) -> list[dict[str, Any]]:
-    """Fill each bucket up to its ``count``, ranked by ``bucket_score``.
-
-    For each bucket: take strict matches first; if short, widen to
-    ``relax_neighborhoods``; if still short, take fewer (never cross-fill from the
-    other bucket). Mutates each chosen listing with ``bucket`` and ``bucket_score``.
-    Returns a flat list ordered by bucket order.
-    """
-    selected: list[dict[str, Any]] = []
-    used: set[Any] = set()
-
-    def _ranked(pool: list[dict[str, Any]], bucket: dict[str, Any]) -> list[dict[str, Any]]:
-        for item in pool:
-            item["bucket_score"] = bucket_score(item, bucket, min_price)
-        return sorted(pool, key=lambda x: x.get("bucket_score", 0), reverse=True)
-
-    for bucket in buckets:
-        name = bucket.get("name", "")
-        count = bucket.get("count", 0)
-
-        strict = _ranked(
-            [l for l in listings if _key(l) not in used and matches_bucket(l, bucket)],
-            bucket,
-        )
-        chosen = strict[:count]
-
-        if len(chosen) < count:
-            chosen_keys = {_key(l) for l in chosen}
-            relaxed = _ranked(
-                [
-                    l
-                    for l in listings
-                    if _key(l) not in used
-                    and _key(l) not in chosen_keys
-                    and matches_bucket(l, bucket, relaxed=True)
-                ],
-                bucket,
-            )
-            chosen += relaxed[: count - len(chosen)]
-
-        for l in chosen:
-            l["bucket"] = name
-            used.add(_key(l))
-        selected.extend(chosen)
-
-    return selected
+    """Bucket selection with no pool filtering (thin wrapper over fill_buckets)."""
+    return fill_buckets(listings, buckets, min_price, pool_check=None)

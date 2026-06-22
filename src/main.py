@@ -7,18 +7,13 @@ from pathlib import Path
 
 import yaml
 
-from buckets import coarse_bucket_candidate, select_bucketed
+from buckets import coarse_bucket_candidate, fill_buckets
 from email_sender import EmailSender
 from filters import ListingFilter
 from learning import load_preferences
 from location import distance_to_sapphire, get_neighborhood
-from zillow_client import (
-    ZillowClient,
-    check_has_pool,
-    extract_schools,
-    parse_listing,
-    passes_pool_filter,
-)
+from vision import DEFAULT_MODEL as DEFAULT_POOL_MODEL, detect_pool_from_photos
+from zillow_client import ZillowClient, parse_listing
 
 # Configuration
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -283,59 +278,40 @@ def main() -> int:
         print(f"After geo pre-filter: {len(candidates)} candidates "
               f"(dropped {before - len(candidates)} out-of-area)")
 
-    # Fetch property details for pool + school data. Pools are a strict
-    # dealbreaker, so fail CLOSED: when 'pool' is excluded, only listings
-    # CONFIRMED pool-free survive — unknown or failed lookups are dropped. The
-    # zoned high school is extracted from the SAME call (zero extra API calls).
+    # Pool filtering via Claude vision over listing photos — this API has no pool
+    # field. Fail CLOSED: only homes vision confirms are pool-free survive. Checks
+    # are LAZY + budgeted inside fill_buckets (run in ranked order only until each
+    # bucket fills), which keeps API cost down. School-zoning data isn't available
+    # from this API, so Bucket A matches Westwood/Round Rock by city + location.
     exclude_pool = "pool" in config.get("exclude_features", [])
-    print(f"Fetching property details for {len(candidates)} candidates (pool + school)...")
-    new_listings = []
-    pool_excluded = 0
-    pool_unknown_excluded = 0
-    for listing in candidates:
-        addr = listing.get("address", "Unknown")
-        zpid = listing.get("zpid")
-        details = zillow.get_property_details(zpid) if zpid else None
-
-        if details:
-            schools = extract_schools(details)
-            listing["high_school"] = schools.get("high_school")
-            listing["schools"] = schools.get("schools", [])
-            if exclude_pool:
-                has_pool, pool_reason = check_has_pool(details)
-            else:
-                has_pool, pool_reason = None, "pool filter off"
-        else:
-            # No zpid or the detail fetch failed — we cannot confirm pool-free.
-            has_pool = None
-            pool_reason = "no zpid" if not zpid else "detail fetch failed"
-        listing["has_pool"] = has_pool
-
-        # Fail closed: only confirmed pool-free listings survive when excluding pools.
-        if not passes_pool_filter(has_pool, exclude_pool):
-            if has_pool is True:
-                pool_excluded += 1
-                print(f"  EXCLUDED (pool):         {addr} — {pool_reason}")
-            else:
-                pool_unknown_excluded += 1
-                print(f"  EXCLUDED (pool unknown): {addr} — {pool_reason}")
-            continue
-
-        if exclude_pool:
-            hs = listing.get("high_school")
-            print(f"  OK (no pool): {addr}" + (f" — zoned {hs}" if hs else ""))
-        new_listings.append(listing)
-
+    vision_cfg = config.get("pool_vision", {}) or {}
+    pool_check = None
     if exclude_pool:
-        print(f"After pool/school step: {len(new_listings)} kept "
-              f"(excluded {pool_excluded} confirmed pools, "
-              f"{pool_unknown_excluded} unknown/unconfirmed)")
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            model = vision_cfg.get("model", DEFAULT_POOL_MODEL)
+            max_photos = vision_cfg.get("max_photos", 6)
 
-    # Bucket selection: fill each bucket up to its count, ranked cheaper+newer.
-    # Short buckets widen to relax_neighborhoods, then send fewer (no cross-fill).
+            def pool_check(listing):
+                return detect_pool_from_photos(
+                    listing.get("photo_urls"), model=model, max_photos=max_photos
+                )
+        else:
+            print("  WARNING: ANTHROPIC_API_KEY not set — cannot vision-check pools; "
+                  "failing closed (nothing will pass). Add the secret to enable pools filtering.")
+
+            def pool_check(listing):
+                return None, "no ANTHROPIC_API_KEY"
+
+    max_checks = vision_cfg.get("max_checks_per_run", 40)
     min_price = config.get("min_price")
+
     if buckets:
-        top_listings = select_bucketed(new_listings, buckets, min_price)
+        print(f"Selecting from {len(candidates)} candidates "
+              f"(vision pool-check budget: {max_checks})...")
+        top_listings = fill_buckets(
+            candidates, buckets, min_price,
+            pool_check=pool_check, max_pool_checks=max_checks,
+        )
         for bucket in buckets:
             name = bucket.get("name", "")
             chosen = [l for l in top_listings if l.get("bucket") == name]
@@ -346,13 +322,16 @@ def main() -> int:
     else:
         # Fallback (config without buckets): cheapest-first up to listings_per_email.
         limit = config.get("listings_per_email", 10)
-        top_listings = sorted(new_listings, key=lambda x: x.get("price") or 0)[:limit]
+        top_listings = sorted(candidates, key=lambda x: x.get("price") or 0)[:limit]
 
-    print(f"Selected {len(top_listings)} listing(s) across {len(buckets)} bucket(s)")
+    pool_confirmed = sum(1 for c in candidates if c.get("has_pool") is True)
+    pool_unknown = sum(1 for c in candidates if c.get("has_pool") is None and c.get("pool_reason"))
+    print(f"Selected {len(top_listings)} listing(s); vision pool-excluded "
+          f"{pool_confirmed} confirmed pool(s), {pool_unknown} unknown (fail-closed)")
     for i, l in enumerate(top_listings):
         print(f"  {i+1}. [{l.get('bucket', '—')}] {l.get('address', 'Unknown')} "
-              f"(${(l.get('price') or 0):,.0f}, HS: {l.get('high_school') or 'n/a'}, "
-              f"nbhd: {l.get('neighborhood', 'Unknown')})")
+              f"(${(l.get('price') or 0):,.0f}, nbhd: {l.get('neighborhood', 'Unknown')}, "
+              f"pool={l.get('has_pool')})")
 
     # Save these as pending (only matters if not in testing mode)
     if not TESTING_MODE:

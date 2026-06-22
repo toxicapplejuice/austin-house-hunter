@@ -39,6 +39,16 @@ max_days_on_market: null
 # Only show new listings since last run
 only_new_listings: true
 
+# Pool detection. This listings API exposes no pool field, so pools are detected
+# by running a sample of each home's listing PHOTOS through Claude vision
+# (fail-closed: only homes confirmed pool-free are kept). Requires the
+# ANTHROPIC_API_KEY secret. Checks are budgeted to control cost: they run lazily
+# in ranked order and stop once the buckets are full.
+pool_vision:
+  model: "claude-haiku-4-5-20251001"
+  max_photos: 6              # photos sampled per home (more = higher cost)
+  max_checks_per_run: 40     # hard cap on vision calls per run
+
 # ---------------------------------------------------------------------------
 # Geographic buckets
 #

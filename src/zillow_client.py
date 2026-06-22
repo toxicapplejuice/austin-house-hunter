@@ -314,6 +314,12 @@ def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
     photo_links = media.get("propertyPhotoLinks", {})
     photo_url = photo_links.get("mediumSizeLink") or photo_links.get("highResolutionLink")
 
+    # Full photo list (used for vision-based pool detection).
+    all_photos = media.get("allPropertyPhotos", {}) or {}
+    photo_urls = all_photos.get("medium") or all_photos.get("highResolution") or []
+    if not photo_urls and photo_url:
+        photo_urls = [photo_url]
+
     # Build Zillow URL from zpid if not provided
     zpid = prop.get("zpid")
     zillow_url = prop.get("detailUrl") or prop.get("url")
@@ -347,9 +353,10 @@ def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
         "stories": stories,
         "has_hoa": has_hoa,
         "hoa_fee": hoa_fee,
-        "has_pool": None,  # populated later from property details
-        "high_school": None,  # populated later from property details (zoned high school)
-        "schools": [],  # populated later from property details
+        "has_pool": None,  # populated later (vision pool detection over photos)
+        "high_school": None,  # populated later if a structured school source is added
+        "schools": [],
+        "photo_urls": photo_urls,
         "description": description,
         "days_on_market": prop.get("daysOnZillow") or prop.get("timeOnZillow"),
         "photo_url": photo_url or prop.get("imgSrc") or prop.get("image"),

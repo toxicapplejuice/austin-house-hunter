@@ -33,12 +33,15 @@ jobs:
       - name: Run house hunter
         env:
           RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
           RECIPIENT_EMAIL_2: ${{ secrets.RECIPIENT_EMAIL_2 }}
           SEARCH_LOCATION: "Austin, TX"
-        run: python scripts/diagnose_api.py  # TEMP: API endpoint diagnosis (revert to: cd src && python main.py)
+        run: |
+          cd src
+          python main.py
 
       - name: Commit data file changes
         run: |
