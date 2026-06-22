@@ -1,9 +1,11 @@
-"""One-off API diagnostic (run in CI with the RAPIDAPI_KEY secret).
+"""One-off capability check (run in CI with the existing RAPIDAPI_KEY secret),
+authorized by the user: does our current RapidAPI key already work on the richer
+`zillow-com1` Zillow API, and does that API return pool + school data?
 
-The /property?zpid=X endpoint 404s, so pool/school data is never retrieved. This
-dumps a full search-result item (to see whether pool/school is already present)
-and probes candidate property-detail endpoints to find one that returns 200.
-Sends NO email. Remove after the detail endpoint is fixed.
+The current private-zillow API returns no pool/school data, so we plan to switch
+to zillow-com1 (which exposes resoFacts.hasPrivatePool + a schools array). This
+just confirms whether the existing key is already subscribed (zero setup) or a
+subscription is needed. Sends NO email. Remove after the data source is settled.
 """
 
 import json
@@ -16,6 +18,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from zillow_client import ZillowClient  # noqa: E402
 
+NEEDLES = ["pool", "school", "reso", "atagl", "homefact", "amenit",
+           "feature", "district", "descr", "fact", "hometype"]
+
+ALT_HOST = "zillow-com1.p.rapidapi.com"
+
+
+def find_keys(obj, path=""):
+    hits = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            kp = f"{path}.{k}"
+            if any(n in str(k).lower() for n in NEEDLES):
+                shown = v if not isinstance(v, (dict, list)) else f"{type(v).__name__}({len(v)})"
+                hits.append((kp, shown))
+            hits += find_keys(v, kp)
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj[:4]):
+            hits += find_keys(v, f"{path}[{i}]")
+    return hits
+
 
 def main() -> int:
     client = ZillowClient()
@@ -24,82 +46,36 @@ def main() -> int:
     if not results:
         print("no search results")
         return 1
+    zpid = results[0].get("property", results[0]).get("zpid")
+    print(f"probe zpid = {zpid}\n")
 
-    item = results[0]
-    prop = item.get("property", item)
-    zpid = prop.get("zpid") or item.get("zpid")
-
-    needles = ["pool", "school", "reso", "atagl", "homefact", "amenit",
-               "feature", "district", "descr", "hdpdata", "hometype", "fact"]
-
-    def find_keys(obj, path=""):
-        hits = []
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                kp = f"{path}.{k}"
-                if any(n in str(k).lower() for n in needles):
-                    shown = v if not isinstance(v, (dict, list)) else f"{type(v).__name__}({len(v)})"
-                    hits.append((kp, shown))
-                hits += find_keys(v, kp)
-        elif isinstance(obj, list):
-            for i, v in enumerate(obj[:4]):
-                hits += find_keys(v, f"{path}[{i}]")
-        return hits
-
-    # Strip the giant photo arrays so the rest of the item is visible.
-    slim = json.loads(json.dumps(item))
-    try:
-        del slim["property"]["media"]
-    except Exception:  # noqa: BLE001
-        pass
-
-    print("=== search item: property.* keys ===")
-    print(sorted(prop.keys()))
-    print("\n=== search item: pool/school/descr key paths ===")
-    for kp, shown in find_keys(item):
-        print(f"  {kp} = {str(shown)[:200]}")
-    print("\n=== search item (media stripped, truncated) ===")
-    print(json.dumps(slim, indent=2)[:7000])
-    print(f"\nzpid = {zpid}")
-
-    # Confirmed working detail endpoint: /byzpid?zpid=...
+    headers = {"x-rapidapi-key": client.api_key, "x-rapidapi-host": ALT_HOST}
     r = requests.get(
-        f"{ZillowClient.BASE_URL}/byzpid",
-        headers=client.headers,
-        params={"zpid": zpid},
-        timeout=30,
+        f"https://{ALT_HOST}/property", headers=headers, params={"zpid": zpid}, timeout=30
     )
-    print(f"\n=== /byzpid status {r.status_code} ===")
-    try:
-        detail = r.json()
-    except Exception as e:  # noqa: BLE001
-        print("not JSON:", e, r.text[:500])
-        return 1
+    print(f"=== {ALT_HOST}/property?zpid={zpid} ===")
+    print("status:", r.status_code, "::", r.text[:240].replace("\n", " "))
 
-    print("top-level keys:", sorted(detail.keys()) if isinstance(detail, dict) else type(detail).__name__)
-
-    needles = ["pool", "school", "reso", "atagl", "homefact", "amenit", "feature", "district"]
-
-    def find_keys(obj, path=""):
-        hits = []
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                kp = f"{path}.{k}"
-                if any(n in str(k).lower() for n in needles):
-                    shown = v if not isinstance(v, (dict, list)) else f"{type(v).__name__}({len(v)})"
-                    hits.append((kp, shown))
-                hits += find_keys(v, kp)
-        elif isinstance(obj, list):
-            for i, v in enumerate(obj[:4]):
-                hits += find_keys(v, f"{path}[{i}]")
-        return hits
-
-    print("\n=== pool/school/feature key paths ===")
-    for kp, shown in find_keys(detail):
-        print(f"  {kp} = {str(shown)[:160]}")
-
-    print("\n=== full /byzpid JSON (truncated) ===")
-    print(json.dumps(detail, indent=2)[:9000])
+    if r.status_code == 200:
+        try:
+            data = r.json()
+        except Exception:  # noqa: BLE001
+            print("(not JSON)")
+            return 0
+        print("\npool/school/feature key paths:")
+        hits = find_keys(data)
+        for kp, shown in hits:
+            print(f"  {kp} = {str(shown)[:160]}")
+        if not hits:
+            print("  (none)")
+        # Show the specific fields our parser needs.
+        prop = data.get("property", data)
+        reso = prop.get("resoFacts") or {}
+        print("\nKEY FIELDS:")
+        print("  resoFacts.hasPrivatePool =", reso.get("hasPrivatePool"))
+        print("  resoFacts.poolFeatures   =", reso.get("poolFeatures"))
+        print("  resoFacts.highSchool     =", reso.get("highSchool"))
+        print("  schools                  =", json.dumps(prop.get("schools"))[:300])
     return 0
 
 
