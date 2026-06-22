@@ -31,42 +31,46 @@ def main() -> int:
 
     prop = item.get("property", item)
     zpid = prop.get("zpid") or item.get("zpid")
-    detail_url = prop.get("detailUrl") or prop.get("url") or item.get("detailUrl")
-    print(f"\nzpid = {zpid} | detailUrl = {detail_url}")
+    print(f"\nzpid = {zpid}")
 
-    base = ZillowClient.BASE_URL
-    headers = client.headers
-    probes = [
-        ("/property", {"zpid": zpid}),
-        ("/property/details", {"zpid": zpid}),
-        ("/propertyDetails", {"zpid": zpid}),
-        ("/property/byzpid", {"zpid": zpid}),
-        ("/property/byZpid", {"zpid": zpid}),
-        ("/byzpid", {"zpid": zpid}),
-        ("/property", {"byzpid": zpid}),
-        ("/property", {"property_id": zpid}),
-        ("/home", {"zpid": zpid}),
-        ("/getProperty", {"zpid": zpid}),
-        (f"/property/{zpid}", None),
-        ("/propertyV2", {"zpid": zpid}),
-        ("/property/detail", {"zpid": zpid}),
-    ]
-    if detail_url:
-        probes += [
-            ("/property", {"url": detail_url}),
-            ("/property/byurl", {"url": detail_url}),
-            ("/property/byUrl", {"url": detail_url}),
-        ]
+    # Confirmed working detail endpoint: /byzpid?zpid=...
+    r = requests.get(
+        f"{ZillowClient.BASE_URL}/byzpid",
+        headers=client.headers,
+        params={"zpid": zpid},
+        timeout=30,
+    )
+    print(f"\n=== /byzpid status {r.status_code} ===")
+    try:
+        detail = r.json()
+    except Exception as e:  # noqa: BLE001
+        print("not JSON:", e, r.text[:500])
+        return 1
 
-    print("\n=== endpoint probes (status :: first 160 chars) ===")
-    for path, params in probes:
-        url = f"{base}{path}"
-        try:
-            r = requests.get(url, headers=headers, params=params, timeout=20)
-            body = r.text[:160].replace("\n", " ")
-            print(f"{r.status_code}  {path}  params={params}  :: {body}")
-        except Exception as e:  # noqa: BLE001
-            print(f"ERR  {path}  params={params}  :: {e}")
+    print("top-level keys:", sorted(detail.keys()) if isinstance(detail, dict) else type(detail).__name__)
+
+    needles = ["pool", "school", "reso", "atagl", "homefact", "amenit", "feature", "district"]
+
+    def find_keys(obj, path=""):
+        hits = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                kp = f"{path}.{k}"
+                if any(n in str(k).lower() for n in needles):
+                    shown = v if not isinstance(v, (dict, list)) else f"{type(v).__name__}({len(v)})"
+                    hits.append((kp, shown))
+                hits += find_keys(v, kp)
+        elif isinstance(obj, list):
+            for i, v in enumerate(obj[:4]):
+                hits += find_keys(v, f"{path}[{i}]")
+        return hits
+
+    print("\n=== pool/school/feature key paths ===")
+    for kp, shown in find_keys(detail):
+        print(f"  {kp} = {str(shown)[:160]}")
+
+    print("\n=== full /byzpid JSON (truncated) ===")
+    print(json.dumps(detail, indent=2)[:9000])
     return 0
 
 
