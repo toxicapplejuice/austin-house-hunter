@@ -1,12 +1,16 @@
 # Austin House Hunter Configuration
 # Copy this to config.yaml and fill in your criteria
 
-# Search location
+# Search location (general base search)
 location: "Austin, TX"
 
-# Price range
+# How many listings to include per email, across all buckets.
+listings_per_email: 10
+
+# Global price range. `max_price` should be the highest cap of any bucket below
+# so premium homes survive the initial filter; per-bucket caps then tighten it.
 min_price: 300000
-max_price: 600000
+max_price: 2500000
 
 # Bedrooms
 min_beds: 3
@@ -31,10 +35,44 @@ property_types:
 zip_codes: []
   # - 78701
   # - 78702
-  # - 78704
+
+# Hard exclusions. "pool" fails closed: any listing not CONFIRMED pool-free is dropped.
+exclude_features:
+  - pool
 
 # Maximum days on market (null for no limit)
-max_days_on_market: 14
+max_days_on_market: null
 
 # Only show new listings since last run
 only_new_listings: true
+
+# ---------------------------------------------------------------------------
+# Geographic buckets (see config.yaml for the live example and full docs).
+# Each email fills buckets in order up to `count`; within a bucket cheaper +
+# newer wins; short buckets widen to `relax_neighborhoods` then send fewer.
+# Match priority per listing: high_schools -> cities -> neighborhoods.
+# ---------------------------------------------------------------------------
+buckets:
+  - name: "Round Rock / Westwood-Zoned"
+    count: 6
+    max_price: 1200000
+    match:
+      high_schools: ["Westwood"]
+      cities: ["Round Rock"]
+      neighborhoods: ["Round Rock", "Anderson Mill", "Jollyville", "Avery Ranch", "Brushy Creek", "Wells Branch"]
+    relax_neighborhoods: ["Cedar Park", "Pflugerville", "Great Hills", "Balcones Woods"]
+    coarse_neighborhoods: ["Round Rock", "Anderson Mill", "Jollyville", "Avery Ranch", "Brushy Creek", "Wells Branch", "Cedar Park", "Great Hills", "Balcones Woods"]
+    coarse_radius_miles: 8
+    search_areas: ["Round Rock, TX", "Austin, TX 78750", "Brushy Creek, TX", "Anderson Mill, Austin, TX"]
+
+  - name: "Westlake & Central"
+    count: 4
+    max_price: 2500000
+    match:
+      high_schools: ["Westlake"]
+      cities: ["West Lake Hills", "Rollingwood"]
+      neighborhoods: ["West Lake Hills", "Rollingwood", "Tarrytown", "Clarksville", "Old West Austin", "Pemberton Heights"]
+    relax_neighborhoods: ["Zilker", "Barton Hills", "Rosedale", "Bouldin Creek"]
+    coarse_neighborhoods: ["West Lake Hills", "Rollingwood", "Tarrytown", "Clarksville", "Old West Austin", "Pemberton Heights", "Zilker", "Downtown"]
+    coarse_radius_miles: 4
+    search_areas: ["West Lake Hills, TX", "Tarrytown, Austin, TX", "Clarksville, Austin, TX", "Rollingwood, TX"]

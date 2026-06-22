@@ -71,72 +71,38 @@ class EmailSender:
 
         return self._send_email(recipient, subject, html_content, text_content)
 
-    def _get_bob_reasoning(self, preferences: dict[str, Any], favorites_count: int) -> str:
-        """Generate Bob's chain of thought explaining why he picked these properties."""
-        reasons = []
+    def _bucket_summary(self, new_listings: list[dict[str, Any]]) -> str:
+        """Plain-text explanation of the bucket strategy for the email intro.
 
-        preferred_neighborhoods = preferences.get("preferred_neighborhoods", [])
-        ideal_price = preferences.get("ideal_price")
-        ideal_sqft = preferences.get("ideal_sqft")
-        ideal_beds = preferences.get("ideal_beds")
-        hoa_pref = preferences.get("hoa_preference")
+        Selection is now driven by explicit geographic buckets (each listing
+        carries a ``bucket`` label), so this replaces the old learned-preference
+        narrative. Safe to embed in both HTML and plain-text emails.
+        """
+        order: list[str] = []
+        counts: dict[str, int] = {}
+        for listing in new_listings:
+            bucket = listing.get("bucket")
+            if not bucket:
+                continue
+            if bucket not in counts:
+                counts[bucket] = 0
+                order.append(bucket)
+            counts[bucket] += 1
 
-        # Check how much we've learned
-        has_learned = bool(preferred_neighborhoods or ideal_price or ideal_sqft or hoa_pref is not None)
-
-        if not has_learned and favorites_count == 0:
-            # No data yet - explain we're just starting
+        if not order:
             return (
-                "I'm still learning your preferences! Currently showing listings sorted by price (highest first). "
-                "Save some favorites and I'll start identifying patterns in what you like. Bello!"
+                "Showing the latest matching listings, sorted by price. "
+                "Every home is filtered to exclude pools."
             )
 
-        if not has_learned and favorites_count > 0:
-            # Have favorites but haven't processed them yet
-            return (
-                "I see you have some favorites saved. I'm analyzing them to understand your preferences. "
-                "For now, listings are sorted by price—I'll get smarter with each update."
-            )
-
-        # We have learned preferences - explain our reasoning
-        if preferred_neighborhoods:
-            top_neighborhoods = preferred_neighborhoods[:3]
-            if len(top_neighborhoods) == 1:
-                reasons.append(f"you've shown interest in <strong>{top_neighborhoods[0]}</strong>")
-            else:
-                neighborhoods_str = ", ".join(top_neighborhoods[:-1]) + f" and {top_neighborhoods[-1]}"
-                reasons.append(f"you're drawn to <strong>{neighborhoods_str}</strong>")
-
-        if ideal_price:
-            reasons.append(f"your target range centers around <strong>${ideal_price:,.0f}</strong>")
-
-        if ideal_beds:
-            beds_rounded = round(ideal_beds)
-            reasons.append(f"you prefer <strong>{beds_rounded}-bedroom</strong> homes")
-
-        if ideal_sqft:
-            reasons.append(f"you gravitate toward <strong>{ideal_sqft:,.0f} sqft</strong>")
-
-        if hoa_pref is not None:
-            if hoa_pref:
-                reasons.append("you're comfortable with HOA communities")
-            else:
-                reasons.append("you prefer properties <strong>without HOA</strong>")
-
-        if reasons:
-            # Build the explanation
-            reasoning = "Based on your favorites, I've noticed " + reasons[0]
-            if len(reasons) > 1:
-                reasoning += ", " + ", ".join(reasons[1:-1])
-                if len(reasons) > 2:
-                    reasoning += ","
-                reasoning += " and " + reasons[-1]
-            reasoning += ". I'm prioritizing listings that match these patterns."
-            return reasoning
-
+        parts = [f"{counts[b]} in {b}" for b in order]
+        if len(parts) == 1:
+            joined = parts[0]
+        else:
+            joined = ", ".join(parts[:-1]) + " and " + parts[-1]
         return (
-            "I'm building a profile of your preferences. Keep saving favorites "
-            "and I'll refine my recommendations over time."
+            f"I prioritized {joined}. Every home is confirmed pool-free and within "
+            "your per-area price caps."
         )
 
     def _get_bob_greeting(self, new_count: int, favorites_count: int) -> str:
@@ -196,6 +162,18 @@ class EmailSender:
 
         # Detect stub (saved from old workflow before data embedding was added)
         is_stub = not listing.get("price") and not listing.get("address")
+
+        # Zoned high school, shown as a small subtitle under the property name.
+        high_school = listing.get("high_school")
+        school_line = ""
+        if high_school:
+            hs = str(high_school)
+            if len(hs) > 30:
+                hs = hs[:27] + "..."
+            school_line = (
+                f'<div style="font-size: 11px; color: {COLORS["muted"]}; '
+                f'margin-top: 2px;">\U0001F393 {hs}</div>'
+            )
 
         # Price (2nd column)
         price = listing.get("price") or 0
@@ -276,6 +254,7 @@ class EmailSender:
         <tr>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']};">
                 <a href="{zillow_url}" style="color: {COLORS['accent']}; text-decoration: none; font-weight: 500;">{name}</a>
+                {school_line}
             </td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; font-weight: 600; color: {COLORS['text']};">{price_str}</td>
             <td style="padding: 12px 8px; border-bottom: 1px solid {COLORS['border']}; color: {COLORS['secondary']};">{beds_baths}</td>
@@ -298,7 +277,6 @@ class EmailSender:
         preferences = preferences or {}
 
         bob_greeting = self._get_bob_greeting(len(new_listings), len(favorites))
-        bob_reasoning = self._get_bob_reasoning(preferences, len(favorites))
 
         # Table headers - Column order: Property, Price, Bed/Bath, Neighborhood, HOA, To Sapphire, Down | Monthly, Action
         headers_with_action = f'''
@@ -353,12 +331,43 @@ class EmailSender:
             </div>
             '''
 
-        # New listings section
+        # New listings section — grouped into the configured geographic buckets.
         new_listings_html = ""
         if new_listings:
-            new_rows = "".join(
-                self._build_listing_row(l, show_favorite_link=True) for l in new_listings
-            )
+            # Group by bucket, preserving the order buckets first appear.
+            bucket_order: list[str] = []
+            grouped: dict[str, list[dict[str, Any]]] = {}
+            for listing in new_listings:
+                bucket = listing.get("bucket") or "New Listings"
+                if bucket not in grouped:
+                    grouped[bucket] = []
+                    bucket_order.append(bucket)
+                grouped[bucket].append(listing)
+
+            sections = ""
+            for bucket in bucket_order:
+                rows = "".join(
+                    self._build_listing_row(l, show_favorite_link=True) for l in grouped[bucket]
+                )
+                sections += f'''
+                <div style="margin-bottom: 24px;">
+                    <h3 style="color: {COLORS['secondary']}; font-size: 14px; font-weight: 600;
+                               margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;">
+                        {bucket} ({len(grouped[bucket])})
+                    </h3>
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 13px; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            <thead>
+                                {headers_with_action}
+                            </thead>
+                            <tbody>
+                                {rows}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                '''
+
             new_listings_html = f'''
             <div style="margin-bottom: 32px;">
                 <div style="display: flex; align-items: center; margin-bottom: 16px;">
@@ -369,19 +378,10 @@ class EmailSender:
                 </div>
                 <div style="background-color: #FEF9C3; border-left: 4px solid #FCD34D; padding: 12px 16px; margin-bottom: 16px; border-radius: 0 8px 8px 0;">
                     <div style="color: {COLORS['text']}; font-size: 13px; line-height: 1.5;">
-                        <strong style="color: #92400E;">Bob's Thinking:</strong> {bob_reasoning}
+                        <strong style="color: #92400E;">Bob's Thinking:</strong> {self._bucket_summary(new_listings)}
                     </div>
                 </div>
-                <div style="overflow-x: auto;">
-                    <table style="width: 100%; border-collapse: collapse; font-size: 13px; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <thead>
-                            {headers_with_action}
-                        </thead>
-                        <tbody>
-                            {new_rows}
-                        </tbody>
-                    </table>
-                </div>
+                {sections}
             </div>
             '''
 
@@ -500,25 +500,35 @@ class EmailSender:
                 lines.append("")
 
         if new_listings:
-            # Add Bob's reasoning (strip HTML tags for plain text)
-            import re
-            reasoning = self._get_bob_reasoning(preferences, len(favorites))
-            reasoning_plain = re.sub(r'<[^>]+>', '', reasoning)
             lines.append("BOB'S THINKING:")
-            lines.append(reasoning_plain)
+            lines.append(self._bucket_summary(new_listings))
             lines.append("")
             lines.append(f"NEW LISTINGS ({len(new_listings)})")
             lines.append("-" * 40)
+
+            # Group by bucket, preserving the order buckets first appear.
+            bucket_order: list[str] = []
+            grouped: dict[str, list[dict[str, Any]]] = {}
             for listing in new_listings:
-                name = listing.get("name") or listing.get("address") or "Unknown"
-                price = listing.get("price") or 0
-                distance = listing.get("distance")
-                dist_str = f"{distance:.1f} mi to Sapphire" if distance else "N/A"
-                neighborhood = listing.get("neighborhood") or "Austin"
-                lines.append(f"* {name}")
-                lines.append(f"  ${price:,.0f} | {neighborhood} | {dist_str}")
-                lines.append(f"  {listing.get('zillow_url', '')}")
+                bucket = listing.get("bucket") or "New Listings"
+                if bucket not in grouped:
+                    grouped[bucket] = []
+                    bucket_order.append(bucket)
+                grouped[bucket].append(listing)
+
+            for bucket in bucket_order:
                 lines.append("")
+                lines.append(f"[{bucket}] ({len(grouped[bucket])})")
+                for listing in grouped[bucket]:
+                    name = listing.get("name") or listing.get("address") or "Unknown"
+                    price = listing.get("price") or 0
+                    neighborhood = listing.get("neighborhood") or "Austin"
+                    high_school = listing.get("high_school")
+                    hs_str = f" | {high_school}" if high_school else ""
+                    lines.append(f"* {name}")
+                    lines.append(f"  ${price:,.0f} | {neighborhood}{hs_str}")
+                    lines.append(f"  {listing.get('zillow_url', '')}")
+                    lines.append("")
         else:
             lines.append("No new listings matched your criteria today.")
             lines.append("")

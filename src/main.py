@@ -7,19 +7,20 @@ from pathlib import Path
 
 import yaml
 
+from buckets import coarse_bucket_candidate, select_bucketed
 from email_sender import EmailSender
 from filters import ListingFilter
-from learning import (
-    calculate_preference_boost,
-    load_preferences,
-    save_preferences,
-    update_preferences_from_favorites,
-)
+from learning import load_preferences
 from location import distance_to_sapphire, get_neighborhood
-from zillow_client import ZillowClient, check_has_pool, parse_listing
+from zillow_client import (
+    ZillowClient,
+    check_has_pool,
+    extract_schools,
+    parse_listing,
+    passes_pool_filter,
+)
 
 # Configuration
-MAX_LISTINGS = 5  # Top N listings to show
 DATA_DIR = Path(__file__).parent.parent / "data"
 
 # TESTING MODE: Set to True to disable dismissal (keep showing all houses)
@@ -99,55 +100,6 @@ def save_pending(pending: list[str]) -> None:
     save_json_file("pending.json", pending)
 
 
-def calculate_relevance_score(listing: dict, config: dict, preferences: dict) -> float:
-    """
-    Calculate a relevance score for ranking listings.
-
-    Score components (higher is better):
-    - Distance score (40%): Closer to Sapphire = better
-    - Price score (30%): Lower price within range = better
-    - Newness score (30%): Fewer days on market = better
-    - Preference boost: Multiplier based on learned preferences
-
-    Returns a score from 0 to 100+.
-    """
-    # Distance score (0-100, closer is better)
-    distance = listing.get("distance")
-    if distance is not None:
-        # Assume max relevant distance is 20 miles
-        distance_score = max(0, 100 - (distance / 20) * 100)
-    else:
-        distance_score = 50  # Default middle score
-
-    # Price score (0-100, lower is better within range)
-    price = listing.get("price") or 0
-    min_price = config.get("min_price") or 0
-    max_price = config.get("max_price") or price * 2
-    if max_price > min_price:
-        price_score = 100 - ((price - min_price) / (max_price - min_price)) * 100
-        price_score = max(0, min(100, price_score))
-    else:
-        price_score = 50
-
-    # Newness score (0-100, fewer days is better)
-    days = listing.get("days_on_market") or 30  # Default to 30 if unknown
-    # Assume 60+ days is old
-    newness_score = max(0, 100 - (days / 60) * 100)
-
-    # Weighted combination
-    base_score = (
-        0.4 * distance_score +
-        0.3 * price_score +
-        0.3 * newness_score
-    )
-
-    # Apply preference boost (learned from favorites)
-    preference_boost = calculate_preference_boost(listing, preferences)
-    total_score = base_score * preference_boost
-
-    return total_score
-
-
 def enrich_listing(listing: dict) -> dict:
     """Add calculated fields to a listing."""
     lat = listing.get("latitude")
@@ -220,14 +172,11 @@ def main() -> int:
 
     print(f"Loaded {len(favorites)} favorites, {len(dismissed)} dismissed, {len(pending)} pending")
 
-    # Update learned preferences from favorites
-    if favorites:
-        print("Updating learned preferences from favorites...")
-        preferences = update_preferences_from_favorites(favorites)
-        save_preferences(preferences)
-        print(f"  Preferred neighborhoods: {preferences.get('preferred_neighborhoods', [])}")
-    else:
-        preferences = load_preferences()
+    # Area targeting is driven by the explicit buckets in config now, NOT by
+    # learned preferences. We still load the (neutral) prefs to pass through to
+    # the email renderer, but we intentionally do not regenerate them from the
+    # old favorites — that would re-introduce the stale South-Austin bias.
+    preferences = load_preferences()
 
     # TESTING MODE: Skip dismissal logic
     if not TESTING_MODE:
@@ -261,24 +210,28 @@ def main() -> int:
         print(f"Error fetching listings: {e}")
         return 1
 
-    # Do targeted searches for preferred neighborhoods (with pagination)
-    preferred_neighborhoods = preferences.get("preferred_neighborhoods", [])
-    for neighborhood in preferred_neighborhoods:
+    # Do targeted searches for each bucket's configured areas (with pagination).
+    search_areas: list[str] = []
+    for bucket in config.get("buckets", []):
+        for area in bucket.get("search_areas", []):
+            if area not in search_areas:
+                search_areas.append(area)
+    for area in search_areas:
         try:
-            neighborhood_prompt = zillow.build_search_prompt(config, neighborhood=neighborhood)
-            print(f"Targeted search: {neighborhood_prompt}")
-            nb_response = zillow.search_by_prompt(neighborhood_prompt)
+            area_prompt = zillow.build_search_prompt(config, location_override=area)
+            print(f"Targeted search: {area_prompt}")
+            nb_response = zillow.search_by_prompt(area_prompt)
             nb_page1, nb_total_pages = zillow.extract_search_results(nb_response)
             raw_listings.extend(nb_page1)
-            print(f"  Found {len(nb_page1)} listings in {neighborhood} (page 1 of {nb_total_pages})")
+            print(f"  Found {len(nb_page1)} listings in {area} (page 1 of {nb_total_pages})")
 
             if nb_total_pages > 1:
-                nb_response_p2 = zillow.search_by_prompt(neighborhood_prompt, page=2)
+                nb_response_p2 = zillow.search_by_prompt(area_prompt, page=2)
                 nb_page2, _ = zillow.extract_search_results(nb_response_p2)
                 raw_listings.extend(nb_page2)
-                print(f"  Found {len(nb_page2)} listings in {neighborhood} (page 2)")
+                print(f"  Found {len(nb_page2)} listings in {area} (page 2)")
         except Exception as e:
-            print(f"  Targeted search for {neighborhood} failed: {e}")
+            print(f"  Targeted search for {area} failed: {e}")
 
     listings = [parse_listing(r) for r in raw_listings]
 
@@ -320,92 +273,86 @@ def main() -> int:
         ]
         print(f"After removing favorites/dismissed: {len(candidates)} candidates")
 
-    # Fetch property details to get pool data (only for unseen candidates)
-    exclude_features = config.get("exclude_features", [])
-    if "pool" in exclude_features:
-        print(f"Fetching property details for pool check ({len(candidates)} listings)...")
-        new_listings = []
-        unknown_count = 0
-        for listing in candidates:
-            addr = listing.get("address", "Unknown")
-            zpid = listing.get("zpid")
-            if not zpid:
-                new_listings.append(listing)
-                continue
+    # Geographic pre-filter: only spend (paid) property-detail lookups on homes
+    # that could plausibly land in a bucket. Drops far-flung homes (south/east
+    # Austin, far suburbs) before the expensive per-listing detail fetch.
+    buckets = config.get("buckets", [])
+    if buckets:
+        before = len(candidates)
+        candidates = [l for l in candidates if coarse_bucket_candidate(l, buckets)]
+        print(f"After geo pre-filter: {len(candidates)} candidates "
+              f"(dropped {before - len(candidates)} out-of-area)")
 
-            details = zillow.get_property_details(zpid)
-            if details:
+    # Fetch property details for pool + school data. Pools are a strict
+    # dealbreaker, so fail CLOSED: when 'pool' is excluded, only listings
+    # CONFIRMED pool-free survive — unknown or failed lookups are dropped. The
+    # zoned high school is extracted from the SAME call (zero extra API calls).
+    exclude_pool = "pool" in config.get("exclude_features", [])
+    print(f"Fetching property details for {len(candidates)} candidates (pool + school)...")
+    new_listings = []
+    pool_excluded = 0
+    pool_unknown_excluded = 0
+    for listing in candidates:
+        addr = listing.get("address", "Unknown")
+        zpid = listing.get("zpid")
+        details = zillow.get_property_details(zpid) if zpid else None
+
+        if details:
+            schools = extract_schools(details)
+            listing["high_school"] = schools.get("high_school")
+            listing["schools"] = schools.get("schools", [])
+            if exclude_pool:
                 has_pool, pool_reason = check_has_pool(details)
-                listing["has_pool"] = has_pool
-                if has_pool is True:
-                    print(f"  EXCLUDED (pool):    {addr} — {pool_reason}")
-                    continue
-                elif has_pool is None:
-                    unknown_count += 1
-                    print(f"  UNKNOWN pool status: {addr} — {pool_reason}")
-                else:
-                    print(f"  OK (confirmed no pool): {addr} — {pool_reason}")
             else:
-                listing["has_pool"] = None
-                unknown_count += 1
-                print(f"  UNKNOWN pool status: {addr} — API call failed")
-            new_listings.append(listing)
+                has_pool, pool_reason = None, "pool filter off"
+        else:
+            # No zpid or the detail fetch failed — we cannot confirm pool-free.
+            has_pool = None
+            pool_reason = "no zpid" if not zpid else "detail fetch failed"
+        listing["has_pool"] = has_pool
 
-        excluded = len(candidates) - len(new_listings)
-        print(f"After pool filter: {len(new_listings)} listings (excluded {excluded} with pools, {unknown_count} unknown pool status)")
-        if unknown_count > 0:
-            print(f"  WARNING: {unknown_count} listings have unknown pool status and were included")
+        # Fail closed: only confirmed pool-free listings survive when excluding pools.
+        if not passes_pool_filter(has_pool, exclude_pool):
+            if has_pool is True:
+                pool_excluded += 1
+                print(f"  EXCLUDED (pool):         {addr} — {pool_reason}")
+            else:
+                pool_unknown_excluded += 1
+                print(f"  EXCLUDED (pool unknown): {addr} — {pool_reason}")
+            continue
+
+        if exclude_pool:
+            hs = listing.get("high_school")
+            print(f"  OK (no pool): {addr}" + (f" — zoned {hs}" if hs else ""))
+        new_listings.append(listing)
+
+    if exclude_pool:
+        print(f"After pool/school step: {len(new_listings)} kept "
+              f"(excluded {pool_excluded} confirmed pools, "
+              f"{pool_unknown_excluded} unknown/unconfirmed)")
+
+    # Bucket selection: fill each bucket up to its count, ranked cheaper+newer.
+    # Short buckets widen to relax_neighborhoods, then send fewer (no cross-fill).
+    min_price = config.get("min_price")
+    if buckets:
+        top_listings = select_bucketed(new_listings, buckets, min_price)
+        for bucket in buckets:
+            name = bucket.get("name", "")
+            chosen = [l for l in top_listings if l.get("bucket") == name]
+            want = bucket.get("count", 0)
+            short = want - len(chosen)
+            print(f"  Bucket '{name}': {len(chosen)}/{want}"
+                  + (f" (SHORT by {short})" if short > 0 else ""))
     else:
-        new_listings = candidates
+        # Fallback (config without buckets): cheapest-first up to listings_per_email.
+        limit = config.get("listings_per_email", 10)
+        top_listings = sorted(new_listings, key=lambda x: x.get("price") or 0)[:limit]
 
-    # Calculate relevance scores (for potential future use)
-    for listing in new_listings:
-        listing["relevance_score"] = calculate_relevance_score(listing, config, preferences)
-
-    # Split into under/over $1M buckets
-    under_1m = [l for l in new_listings if (l.get("price") or 0) < 1_000_000]
-    over_1m = [l for l in new_listings if (l.get("price") or 0) >= 1_000_000]
-
-    # Sort each bucket by relevance score descending
-    under_1m.sort(key=lambda x: x.get("relevance_score") or 0, reverse=True)
-    over_1m.sort(key=lambda x: x.get("relevance_score") or 0, reverse=True)
-
-    # Pick 4 under $1M + 1 over $1M, backfill if a bucket is short
-    top_under = under_1m[:4]
-    top_over = over_1m[:1]
-    top_listings = top_under + top_over
-    remaining = MAX_LISTINGS - len(top_listings)
-    if remaining > 0:
-        extras = [l for l in under_1m[4:] + over_1m[1:] if l not in top_listings]
-        top_listings.extend(extras[:remaining])
-
-    # Guarantee at least 1 listing from a preferred neighborhood
-    preferred = preferences.get("preferred_neighborhoods", [])
-    if preferred:
-        has_preferred = any(
-            l.get("neighborhood") in preferred for l in top_listings
-        )
-        if not has_preferred:
-            # Find best listing from a preferred neighborhood across all candidates
-            preferred_candidates = [
-                l for l in new_listings
-                if l.get("neighborhood") in preferred and l not in top_listings
-            ]
-            if preferred_candidates:
-                preferred_candidates.sort(key=lambda x: x.get("relevance_score") or 0, reverse=True)
-                # Swap out the lowest-scored listing
-                top_listings.sort(key=lambda x: x.get("relevance_score") or 0)
-                top_listings[0] = preferred_candidates[0]
-                print(f"Swapped in preferred neighborhood listing: {preferred_candidates[0].get('neighborhood')}")
-
-    # Sort final list by price descending for display
-    top_listings.sort(key=lambda x: x.get("price") or 0, reverse=True)
-    print(f"Top {len(top_listings)} listings selected ({len(top_under)} under $1M, {len(top_over)} over $1M)")
-
-    # Log top listings with scores
+    print(f"Selected {len(top_listings)} listing(s) across {len(buckets)} bucket(s)")
     for i, l in enumerate(top_listings):
-        print(f"  {i+1}. {l.get('address', 'Unknown')} - Score: {l.get('relevance_score', 0):.1f}, "
-              f"Neighborhood: {l.get('neighborhood', 'Unknown')}")
+        print(f"  {i+1}. [{l.get('bucket', '—')}] {l.get('address', 'Unknown')} "
+              f"(${(l.get('price') or 0):,.0f}, HS: {l.get('high_school') or 'n/a'}, "
+              f"nbhd: {l.get('neighborhood', 'Unknown')})")
 
     # Save these as pending (only matters if not in testing mode)
     if not TESTING_MODE:

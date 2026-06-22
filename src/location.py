@@ -81,6 +81,13 @@ NEIGHBORHOODS = {
     "Bee Cave": (30.3150, -97.9450),
     "Lakeway": (30.3580, -97.9850),
 
+    # Northwest suburbs — Round Rock ISD / Westwood HS attendance area
+    "Anderson Mill": (30.4520, -97.8090),
+    "Jollyville": (30.4420, -97.7720),
+    "Avery Ranch": (30.5010, -97.7900),
+    "Brushy Creek": (30.5130, -97.7430),
+    "Wells Branch": (30.4430, -97.6800),
+
     # Suburbs
     "Pflugerville": (30.4450, -97.6200),
     "Round Rock": (30.5080, -97.6850),

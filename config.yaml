@@ -1,11 +1,15 @@
 # Austin House Hunter Configuration
 
-# Search location
+# Search location (general base search)
 location: "Austin, TX"
 
-# Price range
+# How many listings to include per email, across all buckets.
+listings_per_email: 10
+
+# Global price range. `max_price` is the highest cap of any bucket below, so
+# premium homes survive the initial filter; per-bucket caps then tighten it.
 min_price: 650000
-max_price: 1200000
+max_price: 2500000
 
 # Bedrooms
 min_beds: 3
@@ -23,7 +27,9 @@ max_sqft: null
 property_types:
   - single_family
 
-# Features to exclude from search results
+# Hard exclusions. Pool is a strict dealbreaker: any listing whose pool status
+# cannot be CONFIRMED pool-free (missing data or a failed lookup) is dropped
+# (fail closed) rather than included.
 exclude_features:
   - pool
 
@@ -32,3 +38,90 @@ max_days_on_market: null
 
 # Only show new listings since last run
 only_new_listings: true
+
+# ---------------------------------------------------------------------------
+# Geographic buckets
+#
+# Each email is filled bucket-by-bucket, in order, up to each bucket's `count`.
+# Within a bucket, cheaper + newer ranks higher (distance-to-downtown is NOT a
+# factor — it would unfairly penalize the intentionally-far Round Rock homes).
+# If strict matches can't fill a bucket, the match widens to `relax_neighborhoods`;
+# if it still can't fill, fewer are sent. Buckets never cross-fill each other.
+#
+# Per-listing match priority: zoned high school -> city -> neighborhood.
+#   high_schools : substring-matched against the listing's Zillow-assigned high school
+#   cities       : substring-matched against the listing city
+#   neighborhoods: exact-matched against the nearest-centroid neighborhood label
+# `coarse_neighborhoods` + `coarse_radius_miles` only gate which listings are
+# worth a (paid) property-detail lookup, so keep them generous.
+# `search_areas` are extra targeted Zillow searches run to surface more candidates.
+# ---------------------------------------------------------------------------
+buckets:
+  - name: "Round Rock / Westwood-Zoned"
+    count: 6
+    max_price: 1200000
+    match:
+      high_schools: ["Westwood"]
+      cities: ["Round Rock"]
+      neighborhoods:
+        - "Round Rock"
+        - "Anderson Mill"
+        - "Jollyville"
+        - "Avery Ranch"
+        - "Brushy Creek"
+        - "Wells Branch"
+    relax_neighborhoods:
+      - "Cedar Park"
+      - "Pflugerville"
+      - "Great Hills"
+      - "Balcones Woods"
+    coarse_neighborhoods:
+      - "Round Rock"
+      - "Anderson Mill"
+      - "Jollyville"
+      - "Avery Ranch"
+      - "Brushy Creek"
+      - "Wells Branch"
+      - "Cedar Park"
+      - "Great Hills"
+      - "Balcones Woods"
+    coarse_radius_miles: 8
+    search_areas:
+      - "Round Rock, TX"
+      - "Austin, TX 78750"
+      - "Brushy Creek, TX"
+      - "Anderson Mill, Austin, TX"
+
+  - name: "Westlake & Central"
+    count: 4
+    max_price: 2500000
+    match:
+      high_schools: ["Westlake"]
+      cities: ["West Lake Hills", "Rollingwood"]
+      neighborhoods:
+        - "West Lake Hills"
+        - "Rollingwood"
+        - "Tarrytown"
+        - "Clarksville"
+        - "Old West Austin"
+        - "Pemberton Heights"
+    relax_neighborhoods:
+      - "Zilker"
+      - "Barton Hills"
+      - "Rosedale"
+      - "Bouldin Creek"
+    coarse_neighborhoods:
+      - "West Lake Hills"
+      - "Rollingwood"
+      - "Tarrytown"
+      - "Clarksville"
+      - "Old West Austin"
+      - "Pemberton Heights"
+      - "Zilker"
+      - "Downtown"
+    coarse_radius_miles: 4
+    search_areas:
+      - "West Lake Hills, TX"
+      - "Tarrytown, Austin, TX"
+      - "Clarksville, Austin, TX"
+      - "Rollingwood, TX"

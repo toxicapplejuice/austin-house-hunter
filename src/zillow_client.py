@@ -102,19 +102,28 @@ class ZillowClient:
         total_pages = pages_info.get("totalPages", 1) or 1
         return raw_listings, total_pages
 
-    def build_search_prompt(self, config: dict[str, Any], neighborhood: str | None = None) -> str:
+    def build_search_prompt(
+        self,
+        config: dict[str, Any],
+        neighborhood: str | None = None,
+        location_override: str | None = None,
+    ) -> str:
         """
         Build a natural language search prompt from config.
 
         Args:
             config: Configuration dictionary with search criteria
-            neighborhood: Optional neighborhood to target the search
+            neighborhood: Optional neighborhood to target (suffixed with ", Austin, TX")
+            location_override: Optional fully-formed location used verbatim
+                (e.g. "Round Rock, TX") — takes precedence over neighborhood.
 
         Returns:
             Natural language prompt string
         """
-        # Location - use neighborhood if provided
-        if neighborhood:
+        # Location - prefer an explicit override, then neighborhood, then config.
+        if location_override:
+            location = location_override
+        elif neighborhood:
             location = f"{neighborhood}, Austin, TX"
         else:
             location = config.get("location", "Austin, TX")
@@ -219,6 +228,71 @@ def check_has_pool(details: dict[str, Any]) -> tuple[bool | None, str]:
     return None, "no pool data found in any API field"
 
 
+def passes_pool_filter(has_pool: bool | None, exclude_pool: bool) -> bool:
+    """Fail-closed pool gate.
+
+    When ``exclude_pool`` is on, ONLY listings confirmed pool-free
+    (``has_pool is False``) pass. Both a detected pool (True) and an unknown /
+    unconfirmed status (None — missing data or a failed lookup) are rejected.
+    When pool exclusion is off, every listing passes.
+    """
+    if not exclude_pool:
+        return True
+    return has_pool is False
+
+
+def extract_schools(details: dict[str, Any]) -> dict[str, Any]:
+    """
+    Extract assigned-school info from a property details API response.
+
+    Defensive against the several shapes the Zillow/RapidAPI property endpoint
+    returns. Any field may be None/empty when the API doesn't provide the data
+    (the caller treats a missing high_school as "unknown", not "no match").
+
+    Returns a dict: {high_school, middle_school, elementary_school, district, schools}.
+    """
+    prop = details.get("property", details)
+    reso = prop.get("resoFacts") or {}
+
+    def _first(*vals: Any) -> str | None:
+        for v in vals:
+            if v:
+                return str(v).strip()
+        return None
+
+    result: dict[str, Any] = {
+        # 1. Structured per-level string fields (resoFacts or top level)
+        "high_school": _first(reso.get("highSchool"), prop.get("highSchool")),
+        "middle_school": _first(
+            reso.get("middleOrJuniorSchool"), reso.get("middleSchool"), prop.get("middleSchool")
+        ),
+        "elementary_school": _first(reso.get("elementarySchool"), prop.get("elementarySchool")),
+        "district": _first(
+            reso.get("highSchoolDistrict"), reso.get("schoolDistrict"), prop.get("schoolDistrict")
+        ),
+        "schools": [],
+    }
+
+    # 2. schools[] array (top level or under resoFacts) — common GreatSchools shape
+    schools = prop.get("schools") or reso.get("schools") or []
+    if isinstance(schools, list):
+        simplified = []
+        for s in schools:
+            if not isinstance(s, dict):
+                continue
+            name = s.get("name")
+            level = str(s.get("level") or s.get("type") or s.get("category") or "")
+            grades = str(s.get("grades") or s.get("gradeRange") or "")
+            simplified.append({"name": name, "level": level, "grades": grades})
+            # Backfill high_school from the array if the string field was missing.
+            is_high = "high" in level.lower() or "12" in grades
+            if is_high and name and not result["high_school"]:
+                result["high_school"] = str(name).strip()
+        result["schools"] = simplified
+
+    return result
+
+
 def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
     """Parse a raw listing into a standardized format."""
     # Handle nested "property" structure from Private-Zillow API
@@ -274,6 +348,8 @@ def parse_listing(raw: dict[str, Any]) -> dict[str, Any]:
         "has_hoa": has_hoa,
         "hoa_fee": hoa_fee,
         "has_pool": None,  # populated later from property details
+        "high_school": None,  # populated later from property details (zoned high school)
+        "schools": [],  # populated later from property details
         "description": description,
         "days_on_market": prop.get("daysOnZillow") or prop.get("timeOnZillow"),
         "photo_url": photo_url or prop.get("imgSrc") or prop.get("image"),
